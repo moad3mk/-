@@ -7,6 +7,7 @@ const multer = require("multer");
 const yauzl = require("yauzl");
 const { pipeline } = require("stream/promises");
 const { spawn } = require("child_process");
+const { Transform } = require("stream");
 
 const app = express();
 const PORT = Number(process.env.PORT || 3000);
@@ -21,6 +22,10 @@ const cloudSessions = new Map();
 const loginAttempts = new Map();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
 const SESSION_TTL = 12 * 60 * 60 * 1000;
+const MAX_RUNNING_BOTS = Math.max(1, Math.min(20, Number.parseInt(process.env.NEXO_MAX_RUNNING_BOTS || "5", 10) || 5));
+const MAX_INSTALLED_BOTS = Math.max(1, Math.min(100, Number.parseInt(process.env.NEXO_MAX_BOTS || "20", 10) || 20));
+const apiRateBuckets = new Map();
+const uploadRateBuckets = new Map();
 
 // Periodically discard expired sessions and old login-attempt records.
 const cleanupTimer = setInterval(() => {
@@ -36,17 +41,58 @@ const cleanupTimer = setInterval(() => {
 }, 10 * 60 * 1000);
 cleanupTimer.unref();
 
-if (!HOST_PASSWORD) {
-  console.error("Missing HOST_PASSWORD environment variable. Set it before starting NEXO.");
+if (!HOST_PASSWORD || HOST_PASSWORD.length < 16) {
+  console.error("HOST_PASSWORD is missing or shorter than 16 characters. Set a unique password of at least 16 characters before starting NEXO.");
   process.exit(1);
 }
 
 fs.mkdirSync(BOTS_DIR, { recursive: true });
-app.set("trust proxy", 1);
+app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "32kb" }));
 app.use("/cloud", express.static(CLOUD_DIR));
 app.use(express.static(path.join(ROOT, "public")));
+
+function rateLimit(store, windowMs, max, message) {
+  return (req, res, next) => {
+    const key = req.ip || req.socket.remoteAddress || "unknown";
+    const now = Date.now();
+    let bucket = store.get(key);
+    if (!bucket || now - bucket.startedAt >= windowMs) {
+      bucket = { startedAt: now, count: 0 };
+      store.set(key, bucket);
+    }
+    bucket.count += 1;
+    if (store.size > 10000) {
+      for (const [storedKey, value] of store) {
+        if (now - value.startedAt >= windowMs) store.delete(storedKey);
+        if (store.size <= 9000) break;
+      }
+    }
+    res.setHeader("RateLimit-Limit", String(max));
+    res.setHeader("RateLimit-Remaining", String(Math.max(0, max - bucket.count)));
+    if (bucket.count > max) {
+      res.setHeader("Retry-After", String(Math.ceil((windowMs - (now - bucket.startedAt)) / 1000)));
+      return res.status(429).json({ error: message });
+    }
+    next();
+  };
+}
+
+function sameOriginWrites(req, res, next) {
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return next();
+  const origin = req.get("origin");
+  if (origin) {
+    try {
+      if (new URL(origin).host !== req.get("host")) return res.status(403).json({ error: "تم رفض الطلب لأنه صادر من مصدر غير موثوق" });
+    } catch (_) { return res.status(403).json({ error: "رأس Origin غير صالح" }); }
+  }
+  next();
+}
+
+app.use("/cloud/api", rateLimit(apiRateBuckets, 60 * 1000, 120, "طلبات كثيرة. انتظر دقيقة ثم حاول مجدداً."), sameOriginWrites);
+app.use("/cloud/api", (_req, res, next) => { res.setHeader("Cache-Control", "no-store"); next(); });
+const uploadLimiter = rateLimit(uploadRateBuckets, 10 * 60 * 1000, 5, "تجاوزت حد رفع الملفات. حاول بعد 10 دقائق.");
 
 function safeEqual(a, b) {
   const left = Buffer.from(String(a));
@@ -92,11 +138,14 @@ app.post("/cloud/api/login", (req, res) => {
   const password = req.body && req.body.password;
   if (typeof password !== "string" || !safeEqual(password, HOST_PASSWORD)) {
     attempts.push(now);
+    if (loginAttempts.size > 10000) loginAttempts.delete(loginAttempts.keys().next().value);
     loginAttempts.set(ip, attempts);
     return res.status(401).json({ error: "كلمة المرور غير صحيحة" });
   }
   loginAttempts.delete(ip);
   const token = crypto.randomBytes(32).toString("hex");
+  for (const [existingToken, session] of cloudSessions) { if (session.expiresAt <= now) cloudSessions.delete(existingToken); }
+  if (cloudSessions.size >= 1000) cloudSessions.delete(cloudSessions.keys().next().value);
   cloudSessions.set(token, { expiresAt: now + SESSION_TTL });
   const secure = req.secure || req.get("x-forwarded-proto") === "https";
   res.setHeader("Set-Cookie", "nexo_cloud_session=" + token + "; HttpOnly; SameSite=Strict; Path=/cloud; Max-Age=" + Math.floor(SESSION_TTL / 1000) + (secure ? "; Secure" : ""));
@@ -119,7 +168,11 @@ function validId(id) {
 
 function addLog(id, line) {
   const current = logs.get(id) || [];
-  current.push({ time: new Date().toISOString(), line: String(line).slice(0, 2000) });
+  let safeLine = String(line).slice(0, 2000);
+  for (const secret of Object.values(readBotEnv(id))) {
+    if (typeof secret === "string" && secret.length >= 8) safeLine = safeLine.split(secret).join("[REDACTED]");
+  }
+  current.push({ time: new Date().toISOString(), line: safeLine });
   logs.set(id, current.slice(-150));
 }
 
@@ -141,6 +194,7 @@ app.post("/cloud/api/bots/:id/start", cloudAuth, (req, res) => {
   if (installs.has(id)) return res.status(409).json({ error: "انتظر حتى يكتمل تثبيت المكتبات" });
   if (!fs.existsSync(path.join(folder, "index.js"))) return res.status(404).json({ error: "ملف index.js غير موجود" });
   if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
+  if (processes.size >= MAX_RUNNING_BOTS) return res.status(429).json({ error: "وصلت للحد الأقصى للبوتات الشغالة (" + MAX_RUNNING_BOTS + ")" });
   try {
     fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 });
     if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت" });
@@ -193,6 +247,7 @@ app.post("/cloud/api/bots/:id/install", cloudAuth, (req, res) => {
   if (!fs.existsSync(packagePath)) return res.status(404).json({ error: "ملف package.json غير موجود لهذا البوت" });
   if (processes.has(id)) return res.status(409).json({ error: "أوقف البوت قبل تثبيت المكتبات" });
   if (installs.has(id)) return res.status(409).json({ error: "تثبيت المكتبات جارٍ بالفعل" });
+  if (installs.size >= 2) return res.status(429).json({ error: "يوجد تثبيتان آخران قيد التنفيذ؛ انتظر حتى ينتهي أحدهما" });
   let manifest;
   try { manifest = JSON.parse(fs.readFileSync(packagePath, "utf8")); }
   catch (_) { return res.status(400).json({ error: "ملف package.json غير صالح" }); }
@@ -292,6 +347,7 @@ function extractZip(buffer, destination) {
       const entries = [];
       const names = new Set();
       let totalSize = 0;
+      let actualTotalSize = 0;
       let hasRootEntry = false;
       let settled = false;
       const fail = (error) => {
@@ -343,7 +399,12 @@ function extractZip(buffer, destination) {
               zip.openReadStream(entry, (streamError, readStream) => {
                 if (streamError) return rejectEntry(streamError);
                 const writeStream = fs.createWriteStream(target, { flags: "wx", mode: 0o600 });
-                pipeline(readStream, writeStream).then(resolveEntry, rejectEntry);
+                const sizeGuard = new Transform({ transform(chunk, _encoding, callback) {
+                  actualTotalSize += chunk.length;
+                  if (actualTotalSize > 30 * 1024 * 1024) return callback(new Error("الحجم الفعلي بعد فك الضغط تجاوز 30MB"));
+                  callback(null, chunk);
+                }});
+                pipeline(readStream, sizeGuard, writeStream).then(resolveEntry, rejectEntry);
               });
             });
           }
@@ -360,11 +421,12 @@ function extractZip(buffer, destination) {
   });
 }
 
-app.post("/cloud/api/upload", cloudAuth, upload.single("archive"), async (req, res) => {
+app.post("/cloud/api/upload", cloudAuth, uploadLimiter, upload.single("archive"), async (req, res) => {
   const id = req.body && req.body.botId;
   if (!validId(id)) return res.status(400).json({ error: "اسم البوت لازم يكون إنجليزي ومن غير مسافات" });
   if (!req.file) return res.status(400).json({ error: "اختار ملف ZIP أولاً" });
   if (fs.existsSync(path.join(BOTS_DIR, id))) return res.status(409).json({ error: "يوجد بوت بنفس الاسم بالفعل" });
+  if (getBots().length >= MAX_INSTALLED_BOTS) return res.status(429).json({ error: "وصلت للحد الأقصى لعدد البوتات على الخادم (" + MAX_INSTALLED_BOTS + ")" });
   const temp = path.join(BOTS_DIR, ".upload-" + crypto.randomBytes(8).toString("hex"));
   try {
     await extractZip(req.file.buffer, temp);
@@ -378,7 +440,7 @@ app.post("/cloud/api/upload", cloudAuth, upload.single("archive"), async (req, r
 });
 
 function startBot(id) {
-  if (!validId(id) || processes.has(id)) return false;
+  if (!validId(id) || processes.has(id) || processes.size >= MAX_RUNNING_BOTS) return false;
   const folder = path.join(BOTS_DIR, id);
   const entry = path.join(folder, "index.js");
   if (!fs.existsSync(entry)) return false;
@@ -387,7 +449,7 @@ function startBot(id) {
     if (process.env[key]) baseEnv[key] = process.env[key];
   }
   baseEnv.NODE_ENV = "production";
-  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"] });
+  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));
@@ -404,6 +466,7 @@ app.post("/api/start/:id", auth, (req, res) => {
   const id = req.params.id;
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
   if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
+  if (processes.size >= MAX_RUNNING_BOTS) return res.status(429).json({ error: "وصلت للحد الأقصى للبوتات الشغالة (" + MAX_RUNNING_BOTS + ")" });
   const entry = path.join(BOTS_DIR, id, "index.js");
   if (!fs.existsSync(entry)) return res.status(404).json({ error: "لم أجد bots/" + id + "/index.js" });
   startBot(id);

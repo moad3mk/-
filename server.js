@@ -272,12 +272,14 @@ app.post("/cloud/api/bots/:id/install", cloudAuth, (req, res) => {
     "--no-audit", "--no-fund", "--no-progress", "--package-lock=false",
     "--registry=https://registry.npmjs.org"
   ];
-  const child = spawn(sandbox.command, sandbox.args.concat(installArgs), {
-    cwd: folder,
-    env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin", HOME: "/tmp" },
-    stdio: ["ignore", "pipe", "pipe"],
-    detached: true
-  });
+  let child;
+  try {
+    child = spawnInBotCgroup(id, sandbox.command, sandbox.args.concat(installArgs), {
+      cwd: folder, stdio: ["ignore", "pipe", "pipe"]
+    });
+  } catch (error) {
+    return res.status(503).json({ error: "تعذر تطبيق حدود موارد البوت: " + error.message });
+  }
   installs.set(id, child);
   addLog(id, "بدأ تثبيت " + entries.length + " مكتبة (مع تعطيل install scripts)");
   let outputBytes = 0;
@@ -466,6 +468,53 @@ function stopBotProcess(child, graceMs = 5000) {
     timer.unref();
   });
 }
+const CGROUP_ROOT = process.env.NEXO_CGROUP_ROOT || "/sys/fs/cgroup/nexo";
+const BOT_MEMORY_MAX = Math.max(128 * 1024 * 1024, Math.min(4 * 1024 * 1024 * 1024, Number.parseInt(process.env.NEXO_BOT_MEMORY_MAX || String(512 * 1024 * 1024), 10) || 512 * 1024 * 1024));
+const BOT_CPU_PERCENT = Math.max(10, Math.min(400, Number.parseInt(process.env.NEXO_BOT_CPU_PERCENT || "50", 10) || 50));
+const BOT_PIDS_MAX = Math.max(16, Math.min(512, Number.parseInt(process.env.NEXO_BOT_PIDS_MAX || "64", 10) || 64));
+
+function prepareBotCgroup(id) {
+  if (process.platform !== "linux") throw new Error("cgroups v2 مطلوبة لعزل موارد البوت");
+  const root = path.resolve(CGROUP_ROOT);
+  if (!fs.existsSync(path.join(root, "cgroup.controllers")) ||
+      !fs.existsSync(path.join(root, "cgroup.subtree_control"))) {
+    throw new Error("لم يتم تجهيز مجلد cgroups v2 المفوض للخدمة");
+  }
+  const enabled = fs.readFileSync(path.join(root, "cgroup.subtree_control"), "utf8").trim().split(/\\s+/);
+  for (const controller of ["cpu", "memory", "pids"]) {
+    if (!enabled.includes(controller)) throw new Error("متحكم cgroup غير مفعل: " + controller);
+  }
+  const cgroup = path.join(root, "bot-" + id);
+  if (!cgroup.startsWith(root + path.sep)) throw new Error("مسار cgroup غير صالح");
+  if (!fs.existsSync(cgroup)) fs.mkdirSync(cgroup, { mode: 0o700 });
+  const required = ["cgroup.procs", "memory.max", "cpu.max", "pids.max"];
+  for (const file of required) {
+    if (!fs.existsSync(path.join(cgroup, file))) throw new Error("ملف cgroup غير متاح: " + file);
+  }
+  const current = fs.readFileSync(path.join(cgroup, "cgroup.procs"), "utf8").trim();
+  if (current) throw new Error("ما زالت هناك عمليات قديمة داخل cgroup هذا البوت");
+  fs.writeFileSync(path.join(cgroup, "memory.max"), String(BOT_MEMORY_MAX));
+  fs.writeFileSync(path.join(cgroup, "cpu.max"), String(Math.round(BOT_CPU_PERCENT * 1000)) + " 100000");
+  fs.writeFileSync(path.join(cgroup, "pids.max"), String(BOT_PIDS_MAX));
+  const swap = path.join(cgroup, "memory.swap.max");
+  if (fs.existsSync(swap)) fs.writeFileSync(swap, "0");
+  return cgroup;
+}
+
+function spawnInBotCgroup(id, command, args, options = {}) {
+  const cgroup = prepareBotCgroup(id);
+  const script = 'cg="$1"; shift; printf "%s" "$" > "$cg/cgroup.procs" || exit 125; exec "$@"';
+  const child = spawn("/bin/sh", ["-c", script, "nexo-cgroup", cgroup, command, ...args], {
+    ...options,
+    env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/tmp" },
+    detached: true
+  });
+  child.once("exit", () => {
+    try { fs.rmdirSync(cgroup); } catch (_) {}
+  });
+  return child;
+}
+
 function sandboxCommand(id) {
   if (process.platform !== "linux") throw new Error("العزل الآمن متاح حالياً على Linux فقط");
   const bwrap = ["/usr/bin/bwrap", "/bin/bwrap"].find((candidate) => fs.existsSync(candidate));
@@ -501,7 +550,15 @@ function startBot(id) {
   let sandbox;
   try { sandbox = sandboxCommand(id); }
   catch (error) { addLog(id, "رفض التشغيل: " + error.message); return false; }
-  const child = spawn(sandbox.command, sandbox.args.concat(["--", process.execPath, "/workspace/index.js"]), { cwd: folder, env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin", HOME: "/tmp" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: true });
+  let child;
+  try {
+    child = spawnInBotCgroup(id, sandbox.command, sandbox.args.concat(["--", process.execPath, "/workspace/index.js"]), {
+      cwd: folder, stdio: ["ignore", "pipe", "pipe"], windowsHide: true
+    });
+  } catch (error) {
+    addLog(id, "رفض التشغيل بسبب عدم توفر حدود الموارد: " + error.message);
+    return false;
+  }
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));

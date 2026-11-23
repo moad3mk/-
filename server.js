@@ -49,6 +49,7 @@ if (!HOST_PASSWORD || HOST_PASSWORD.length < 16) {
 fs.mkdirSync(BOTS_DIR, { recursive: true, mode: 0o700 });
 try { fs.chmodSync(BOTS_DIR, 0o700); } catch (_) {}
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
+app.disable("x-powered-by");
 app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["\'self\'"], scriptSrc: ["\'self\'", "\'unsafe-inline\'"], styleSrc: ["\'self\'", "\'unsafe-inline\'"], imgSrc: ["\'self\'", "data:"], connectSrc: ["\'self\'"], baseUri: ["\'self\'"], formAction: ["\'self\'"], frameAncestors: ["\'none\'"] } } }));
 app.use(express.json({ limit: "32kb" }));
 app.use("/cloud", express.static(CLOUD_DIR));
@@ -124,7 +125,7 @@ function cloudAuth(req, res, next) {
 
 function auth(req, res, next) {
   const supplied = req.get("x-host-password");
-  if (!supplied || !safeEqual(supplied, HOST_PASSWORD)) return res.status(401).json({ error: "كلمة مرور اللوحة غير صحيحة" });
+  if (!supplied || supplied.length > 200 || !safeEqual(supplied, HOST_PASSWORD)) return res.status(401).json({ error: "كلمة مرور اللوحة غير صحيحة" });
   next();
 }
 
@@ -462,6 +463,8 @@ function startBot(id) {
   });
   return true;
 }
+
+app.use("/api", rateLimit(apiRateBuckets, 60 * 1000, 60, "طلبات كثيرة. انتظر دقيقة ثم حاول مجدداً."), sameOriginWrites);
 
 app.post("/api/start/:id", auth, (req, res) => {
   const id = req.params.id;

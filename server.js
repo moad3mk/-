@@ -138,6 +138,7 @@ app.post("/cloud/api/bots/:id/start", cloudAuth, (req, res) => {
   const id = req.params.id;
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
   const folder = path.join(BOTS_DIR, id);
+  if (installs.has(id)) return res.status(409).json({ error: "انتظر حتى يكتمل تثبيت المكتبات" });
   if (!fs.existsSync(path.join(folder, "index.js"))) return res.status(404).json({ error: "ملف index.js غير موجود" });
   if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
   try {
@@ -161,6 +162,7 @@ app.post("/cloud/api/bots/:id/restart", cloudAuth, async (req, res) => {
   const id = req.params.id;
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
   const folder = path.join(BOTS_DIR, id);
+  if (installs.has(id)) return res.status(409).json({ error: "انتظر حتى يكتمل تثبيت المكتبات" });
   if (!fs.existsSync(path.join(folder, "index.js"))) return res.status(404).json({ error: "ملف index.js غير موجود" });
   const child = processes.get(id);
   if (!child) {

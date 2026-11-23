@@ -504,12 +504,15 @@ function prepareBotCgroup(id) {
 
 function spawnInBotCgroup(id, command, args, options = {}) {
   const cgroup = prepareBotCgroup(id);
-  const script = 'cg="$1"; shift; printf "%s" "$" > "$cg/cgroup.procs" || exit 125; exec "$@"';
+  const script = 'cg="$1"; shift; IFS= read -r pid || exit 125; printf "%s" "$pid" > "$cg/cgroup.procs" || exit 125; exec "$@"';
   const child = spawn("/bin/sh", ["-c", script, "nexo-cgroup", cgroup, command, ...args], {
     ...options,
     env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin", HOME: "/tmp" },
+    stdio: ["pipe", "pipe", "pipe"],
     detached: true
   });
+  if (child.stdin && child.pid) child.stdin.end(String(child.pid) + "\n");
+  else if (child.stdin) child.stdin.end();
   child.once("exit", () => {
     try { fs.rmdirSync(cgroup); } catch (_) {}
   });

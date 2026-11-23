@@ -1,5 +1,8 @@
 FROM node:22-alpine
 
+USER root
+RUN apk add --no-cache bubblewrap
+
 ENV NODE_ENV=production
 WORKDIR /app
 

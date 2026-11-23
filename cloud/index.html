@@ -50,7 +50,7 @@ footer{text-align:center;color:#64748b;padding:35px 15px;font-size:12px}
 <section class="section"><div class="section-head"><h2>قائمة البوتات</h2><button class="secondary" id="refresh">تحديث</button></div><div class="card" id="bots"><p class="muted">جاري تحميل البوتات...</p></div></section>
 <section class="section"><div class="section-head"><h2>سجل التشغيل</h2></div><div class="card"><div class="muted" id="logTitle">اختر «السجلات» من أحد البوتات لعرض آخر الرسائل.</div><pre class="logs" id="logOutput">لا توجد سجلات معروضة.</pre></div></section>
 <section class="section"><div class="section-head"><h2>متغيرات البيئة السرية</h2></div><div class="card"><p class="muted">اختر «البيئة» من البوت، ثم عدّل JSON واحفظه. ضع التوكنات هنا بدل مشاركتها بين البوتات.</p><label for="envBot">البوت المحدد</label><input id="envBot" readonly placeholder="لم يتم اختيار بوت"><label for="envEditor">متغيرات البيئة بصيغة JSON</label><textarea id="envEditor" class="env-editor" spellcheck="false" placeholder='{"DISCORD_TOKEN":"ضع_التوكن_هنا"}'></textarea><div style="margin-top:12px"><button id="saveEnv">حفظ المتغيرات</button></div><div id="envMessage" class="error" role="status"></div></div></section>
-<div class="notice">تنبيه أمني مهم: شغّل فقط ملفات بوتات تثق في مصدرها؛ كود البوت يعمل بصلاحيات حساب الخادم. التشغيل والإيقاف والسجلات متاحة الآن، لكن تثبيت مكتبات package.json مؤجل حتى نجهز عزلاً آمناً. بوت NEXO الموجود على Wispbyte مستقل ولن يظهر هنا حالياً.</div>
+<div class="notice">تنبيه أمني مهم: شغّل فقط ملفات بوتات تثق في مصدرها؛ كود البوت يعمل بصلاحيات حساب الخادم. يمكن تثبيت مكتبات package.json مع تعطيل install scripts وتحديد مهلة للتثبيت. هذا لا يعزل كود البوت نفسه؛ لذلك شغّل بوتاتك الموثوقة فقط. بوت NEXO الموجود على Wispbyte مستقل ولن يظهر هنا حالياً.</div>
 </section>
 </main><footer>© 2026 NEXO CLOUD PRIVATE</footer>
 <script>
@@ -81,11 +81,13 @@ async function loadBots() {
     toggle.addEventListener("click",async()=>{toggle.disabled=true;try{await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/"+(bot.running?"stop":"start"),{method:"POST"});await loadBots();}catch(error){alert(error.message);}finally{toggle.disabled=false;}});
     const restartButton=document.createElement("button"); restartButton.textContent="إعادة تشغيل"; restartButton.className="secondary";
     restartButton.addEventListener("click",async()=>{restartButton.disabled=true;try{await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/restart",{method:"POST"});await loadBots();}catch(error){alert(error.message);}finally{restartButton.disabled=false;}});
+    const installButton=document.createElement("button"); installButton.textContent="تثبيت المكتبات"; installButton.className="secondary";
+    installButton.addEventListener("click",async()=>{if(!confirm("سيتم تثبيت المكتبات الموجودة في package.json لهذا البوت. هل تريد المتابعة؟"))return;installButton.disabled=true;try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/install",{method:"POST"});alert(result.message+" افتح السجلات لمتابعة التثبيت.");}catch(error){alert(error.message);}finally{installButton.disabled=false;}});
     const logButton=document.createElement("button"); logButton.textContent="السجلات"; logButton.className="secondary";
     logButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/logs");$("logTitle").textContent="سجلات البوت: "+bot.id;$("logOutput").textContent=(result.logs||[]).map(item=>"["+item.time+"] "+item.line).join("\n")||"لا توجد سجلات حتى الآن."; }catch(error){alert(error.message);}});
     const envButton=document.createElement("button"); envButton.textContent="البيئة"; envButton.className="secondary";
     envButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/env");$("envBot").value=bot.id;$("envEditor").value=JSON.stringify(result.variables||{},null,2);$("envMessage").textContent="تم تحميل متغيرات "+bot.id+"."; }catch(error){alert(error.message);}});
-    actions.append(toggle,restartButton,logButton,envButton); row.append(name,state,actions); $("bots").append(row);
+    actions.append(toggle,restartButton,installButton,logButton,envButton); row.append(name,state,actions); $("bots").append(row);
   }
 }
 $("loginForm").addEventListener("submit", async (event) => {

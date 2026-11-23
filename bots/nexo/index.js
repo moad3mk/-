@@ -30,7 +30,7 @@ const commands=[
  new SlashCommandBuilder().setName("shortcut_add").setDescription("إضافة رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)).addStringOption(o=>o.setName("reply").setDescription("الرد").setRequired(true)),
  new SlashCommandBuilder().setName("shortcut_remove").setDescription("حذف رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)),
  new SlashCommandBuilder().setName("shortcut_list").setDescription("عرض الردود التلقائية"),
- new SlashCommandBuilder().setName("allow").setDescription("السماح لرتبة أو شخص باستخدام أمر").addStringOption(o=>o.setName("command").setDescription("الأمر").setRequired(true).addChoices(...COMMAND_CHOICES.map(([value,name])=>({name,value}))).setMaxLength(32)).addRoleOption(o=>o.setName("role").setDescription("الرتبة المسموح لها")).addUserOption(o=>o.setName("user").setDescription("الشخص المسموح له"))
+ new SlashCommandBuilder().setName("allow").setDescription("فتح لوحة السماح الخاصة")
 ].map(x=>x.toJSON());
 const label=u=>u?u.tag+" ("+u.id+")":"عضو غير معروف";
 async function sendDmPanel(user,payload){try{await user.send(payload);return true;}catch{return false;}}
@@ -95,7 +95,7 @@ client.on("interactionCreate",async i=>{
   if(name==="shortcut_list"){const a=Object.entries(settings.shortcuts[i.guild.id]||{});return i.reply(a.length?a.map(x=>"**"+x[0]+"** ← "+x[1]).join("\\n").slice(0,1900):"ما فيش اختصارات.");}
   return;
  }
- if(!i.isStringSelectMenu()&&!i.isChannelSelectMenu())return;
+ if(!i.isStringSelectMenu()&&!i.isChannelSelectMenu()&&!i.isRoleSelectMenu()&&!i.isUserSelectMenu())return;
  if(!high(i.member,i.guild,i.memberPermissions))return i.reply({content:"إعداد اللوقات للرتب العليا فقط.",ephemeral:true}).catch(()=>{});
  if(i.customId.startsWith("logs:type:")){
   const type=i.values[0],guildId=i.customId.split(":")[2],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+guildId+":"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);

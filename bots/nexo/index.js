@@ -1,4 +1,4 @@
-const {Client,GatewayIntentBits,Partials,ChannelType,EmbedBuilder,ActionRowBuilder,StringSelectMenuBuilder,ChannelSelectMenuBuilder,SlashCommandBuilder,REST,Routes}=require("discord.js");
+const {Client,GatewayIntentBits,Partials,ChannelType,EmbedBuilder,ActionRowBuilder,StringSelectMenuBuilder,ChannelSelectMenuBuilder,RoleSelectMenuBuilder,UserSelectMenuBuilder,ModalBuilder,TextInputBuilder,TextInputStyle,SlashCommandBuilder,REST,Routes}=require("discord.js");
 const {joinVoiceChannel,getVoiceConnection}=require("@discordjs/voice");
 const fs=require("fs"),path=require("path");
 const TOKEN=process.env.DISCORD_TOKEN;
@@ -37,11 +37,18 @@ async function sendDmPanel(user,payload){try{await user.send(payload);return tru
 async function askDm(userId,data,text){dmSessions.set(userId,data);const u=await client.users.fetch(userId).catch(()=>null);if(!u)return false;return sendDmPanel(u,{content:text});}
 async function log(guild,type,title,desc){const id=settings.logs[guild.id]?.[type];if(!id)return;const ch=await guild.channels.fetch(id).catch(()=>null);if(ch&&ch.isTextBased())ch.send({embeds:[new EmbedBuilder().setColor(0x648cff).setTitle(title).setDescription(String(desc||"—").slice(0,4000)).setTimestamp()]}).catch(()=>{});}
 async function purgeMessages(channel,n){
- const fetched=await channel.messages.fetch({limit:n});
+ const fetched=await channel.messages.fetch({limit:Math.min(100,n+1)});
  const recent=fetched.filter(x=>Date.now()-x.createdTimestamp<14*24*60*60*1000);
- if(!recent.size)return {deleted:0,reason:"ما فيش رسائل حديثة قابلة للمسح في آخر "+n+" رسالة."};
- try{const deleted=await channel.bulkDelete(recent,true);return {deleted:deleted.size};}
- catch(e){let count=0;for(const msg of recent.values()){try{await msg.delete();count++;}catch{}}return count?{deleted:count}:{deleted:0,reason:"تعذر المسح. تأكد أن البوت عنده Manage Messages وأن الروم يسمح له بالحذف."};}
+ if(!recent.size)return {deleted:0,reason:"ما فيش رسائل حديثة ضمن آخر "+n+" رسالة."};
+ let count=0;
+ try{const deleted=await channel.bulkDelete(recent,true);count=deleted.size;}catch{}
+ if(count<recent.size){
+  for(const msg of recent.values()){
+   if(msg.deleted)continue;
+   try{await msg.delete();count++;}catch{}
+  }
+ }
+ return count?{deleted:count}:{deleted:0,reason:"تعذر حذف الرسائل. تأكد من صلاحية Manage Messages وأن البوت يقدر يحذف في هذا الروم."};
 }
 function duration(s){const m=/^(\d+)(s|m|h|d)$/i.exec(s||"");if(!m)return null;const n=+m[1];if(!n||n>40320)return null;return n*({s:1000,m:60000,h:3600000,d:86400000})[m[2].toLowerCase()];}
 client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
@@ -53,7 +60,7 @@ client.on("messageCreate",async m=>{
  if(cmd==="دخول"){const v=m.member.voice.channel;if(!v)return m.reply("خش للروم الصوتي الأول.");try{joinVoiceChannel({channelId:v.id,guildId:m.guild.id,adapterCreator:m.guild.voiceAdapterCreator,selfDeaf:true});return m.reply("دخلت معاك للروم: "+v.name);}catch{return m.reply("ما قدرتش ندخل للروم الصوتي.");}}
  if(cmd==="خروج"){const v=getVoiceConnection(m.guild.id);if(!v)return m.reply("مش داخل في روم صوتي.");v.destroy();return m.reply("طلعت من الروم الصوتي.");}
  const admin=["تف","ق","ف","م","اسكت","لوقات","اختصار"];
- if(cmd==="سماح"){if(!high(m.member,m.guild))return m.reply("أمر السماح للرتب العليا فقط.");const menu=new StringSelectMenuBuilder().setCustomId("dmallow:"+m.guild.id).setPlaceholder("اختار الأمر اللي تبي تمنح صلاحية استخدامه").addOptions(COMMAND_CHOICES.map(([value,name])=>({label:name,value})));const ok=await sendDmPanel(m.author,{content:"لوحة السماح — اختار الأمر، وبعدها ابعث منشن الرتبة/الشخص أو الـ ID في الخاص.",components:[new ActionRowBuilder().addComponents(menu)]});return m.reply(ok?"بعثتلك لوحة السماح في الخاص.":"ما قدرتش نبعثلك خاص؛ افتح الرسائل الخاصة من السيرفر وجرب مرة ثانية.");}
+ if(cmd==="سماح"){if(!high(m.member,m.guild))return m.reply("أمر السماح للرتب العليا فقط.");return m.reply("باش تطلعلك لوحة السماح الخاصة بيك داخل الروم، استخدم أمر السلاش /allow.");}
  if(!admin.includes(cmd)&&!c.startsWith("فك تايم")&&!c.startsWith("فك باند"))return;
  if(!canCommand(m.member,m.guild,({"تف":"ban","ق":"lock","ف":"unlock","م":"clear","اسكت":"timeout","لوقات":"logs","اختصار":"shortcut_add"}[cmd]|| (c.startsWith("فك تايم")?"untimeout":c.startsWith("فك باند")?"unban":cmd))))return m.reply("ما عندكش سماح لاستخدام الأمر هذا.");
  
@@ -63,20 +70,15 @@ client.on("messageCreate",async m=>{
  if(cmd==="اسكت"){const t=m.mentions.members.first(),ms=duration(p[2]);if(!t||!ms)return m.reply("استعمال الأمر: اسكت @العضو 10m [السبب]");return t.timeout(ms,p.slice(3).join(" ")||"بواسطة "+m.author.tag).then(()=>m.reply("تم إسكات "+t.user.tag+".")).catch(()=>m.reply("فشل الإسكات."));}
  if(c.startsWith("فك تايم")){const t=m.mentions.members.first();if(!t)return m.reply("استعمال الأمر: فك تايم @العضو");return t.timeout(null,"إزالة الإسكات بواسطة "+m.author.tag).then(()=>m.reply("تم فك الإسكات.")).catch(()=>m.reply("فشل فك الإسكات."));}
  if(c.startsWith("فك باند")){const id=p[2]||p[1];if(!/^\d{17,20}$/.test(id||""))return m.reply("استعمال الأمر: فك باند ID");return m.guild.members.unban(id).then(()=>m.reply("تم فك الحظر.")).catch(()=>m.reply("ما قدرتش نفك الحظر؛ تأكد من ID."));}
- if(cmd==="لوقات"){const menu=new StringSelectMenuBuilder().setCustomId("dmlogs:"+m.guild.id).setPlaceholder("اختار نوع اللوق").addOptions(TYPES.map(x=>({label:x[1],value:x[0]})));const ok=await sendDmPanel(m.author,{content:"لوحة إعداد اللوقات — اختار نوع اللوق، وبعدها ابعث منشن الروم أو ID في الخاص.",components:[new ActionRowBuilder().addComponents(menu)]});return m.reply(ok?"بعثتلك لوحة إعداد اللوقات في الخاص.":"ما قدرتش نبعثلك خاص؛ افتح الرسائل الخاصة من السيرفر وجرب مرة ثانية.");}
+ if(cmd==="لوقات"){return m.reply("باش تطلعلك لوحة اللوقات الخاصة بيك داخل الروم، استخدم أمر السلاش /logs.");}
  if(cmd==="اختصار"){const sub=p[1];if(sub==="إضافة"){const a=c.slice("اختصار إضافة".length).trim().split("|");if(a.length<2||!a[0].trim()||!a.slice(1).join("|").trim())return m.reply("استعمال: اختصار إضافة الكلمة | الرد");settings.shortcuts[m.guild.id]||={};settings.shortcuts[m.guild.id][a[0].trim()]=a.slice(1).join("|").trim();save();return m.reply("تم حفظ الاختصار.");}if(sub==="حذف"){const k=p.slice(2).join(" ");if(!shortcuts[k])return m.reply("الاختصار مش موجود.");delete shortcuts[k];save();return m.reply("تم حذف الاختصار.");}if(sub==="قائمة"){const a=Object.entries(shortcuts);return m.reply(a.length?a.map(x=>"**"+x[0]+"** ← "+x[1]).join("\n").slice(0,1900):"ما فيش اختصارات.");}return m.reply("الأوامر: اختصار إضافة الكلمة | الرد — اختصار حذف الكلمة — اختصار قائمة");}
 });
 client.on("interactionCreate",async i=>{
- if(!i.guild){
-  if(!i.isStringSelectMenu())return;
-  if(i.customId.startsWith("dmlogs:")){const guildId=i.customId.split(":")[1],guild=await client.guilds.fetch(guildId).catch(()=>null);if(!guild)return i.reply({content:"السيرفر مش متاح.",ephemeral:true});const member=await guild.members.fetch(i.user.id).catch(()=>null);if(!high(member,guild,member?.permissions))return i.reply({content:"ما عندكش صلاحية إعداد اللوقات.",ephemeral:true});dmSessions.set(i.user.id,{kind:"logs",guildId,type:i.values[0]});return i.reply({content:"تمام، توا ابعث منشن الروم أو ID متاعه في الخاص.",ephemeral:true});}
-  if(i.customId.startsWith("dmallow:")){const guildId=i.customId.split(":")[1],guild=await client.guilds.fetch(guildId).catch(()=>null);if(!guild)return i.reply({content:"السيرفر مش متاح.",ephemeral:true});const member=await guild.members.fetch(i.user.id).catch(()=>null);if(!high(member,guild,member?.permissions))return i.reply({content:"ما عندكش صلاحية السماح.",ephemeral:true});dmSessions.set(i.user.id,{kind:"allow",guildId,command:i.values[0]});return i.reply({content:"اختار الأمر: "+i.values[0]+". توا ابعث منشن الرتبة أو الشخص أو الـ ID في الخاص.",ephemeral:true});}
-  return;
- }
+ if(!i.guild)return;
  if(i.isChatInputCommand()){
   const name=i.commandName,admin=["ban","lock","unlock","clear","timeout","untimeout","unban","logs","shortcut_add","shortcut_remove","shortcut_list"];
   const actor=await i.guild.members.fetch(i.user.id).catch(()=>null);
-  if(name==="allow"){if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"أمر السماح للرتب العليا فقط.",ephemeral:true});const menu=new StringSelectMenuBuilder().setCustomId("dmallow:"+i.guild.id).setPlaceholder("اختار الأمر").addOptions(COMMAND_CHOICES.map(([value,label])=>({label,value})));const ok=await sendDmPanel(i.user,{content:"لوحة السماح — اختار الأمر، وبعدها ابعث منشن الرتبة/الشخص أو الـ ID في الخاص.",components:[new ActionRowBuilder().addComponents(menu)]});return i.reply({content:ok?"بعثتلك لوحة السماح في الخاص.":"ما قدرتش نبعثلك خاص؛ افتح الرسائل الخاصة وجرب مرة ثانية.",ephemeral:true});}
+  if(name==="allow"){if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"أمر السماح للرتب العليا فقط.",ephemeral:true});const menu=new StringSelectMenuBuilder().setCustomId("allow:command:"+i.guild.id).setPlaceholder("اختار الأمر اللي تبي تمنح صلاحية استخدامه").addOptions(COMMAND_CHOICES.map(([value,label])=>({label,value})));return i.reply({content:"**لوحة السماح** — اختار الأمر، وبعدها حدد رتبة أو شخص.",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
   if(admin.includes(name)&&!canCommand(actor,i.guild,name,actor?.permissions))return i.reply({content:"ما عندكش سماح لاستخدام الأمر هذا.",ephemeral:true});
   
   if(name==="join"){const v=i.member.voice?.channel;if(!v)return i.reply({content:"خش للروم الصوتي الأول.",ephemeral:true});try{joinVoiceChannel({channelId:v.id,guildId:i.guild.id,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:true});return i.reply("دخلت معاك للروم: "+v.name);}catch{return i.reply({content:"ما قدرتش ندخل للروم الصوتي.",ephemeral:true});}}
@@ -87,7 +89,7 @@ client.on("interactionCreate",async i=>{
   if(name==="timeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null),ms=duration(i.options.getString("duration"));if(!t||!ms)return i.reply({content:"المدة غير صحيحة. استخدم 10m أو 2h أو 1d.",ephemeral:true});return t.timeout(ms,i.options.getString("reason")||"بواسطة "+i.user.tag).then(()=>i.reply("تم إسكات "+t.user.tag+".")).catch(()=>i.reply({content:"فشل الإسكات.",ephemeral:true}));}
   if(name==="untimeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null);if(!t)return i.reply({content:"ما لقيتش العضو.",ephemeral:true});return t.timeout(null,"إزالة الإسكات بواسطة "+i.user.tag).then(()=>i.reply("تم فك الإسكات.")).catch(()=>i.reply({content:"فشل فك الإسكات.",ephemeral:true}));}
   if(name==="unban"){const id=i.options.getString("user_id");if(!/^\d{17,20}$/.test(id))return i.reply({content:"معرّف المستخدم غير صحيح.",ephemeral:true});return i.guild.members.unban(id).then(()=>i.reply("تم فك الحظر.")).catch(()=>i.reply({content:"ما قدرتش نفك الحظر؛ تأكد من المعرّف.",ephemeral:true}));}
-  if(name==="logs"){const menu=new StringSelectMenuBuilder().setCustomId("dmlogs:"+i.guild.id).setPlaceholder("اختار نوع اللوق").addOptions(TYPES.map(x=>({label:x[1],value:x[0]})));const ok=await sendDmPanel(i.user,{content:"لوحة إعداد اللوقات — اختار نوع اللوق، وبعدها ابعث منشن الروم أو ID في الخاص.",components:[new ActionRowBuilder().addComponents(menu)]});return i.reply({content:ok?"بعثتلك لوحة إعداد اللوقات في الخاص.":"ما قدرتش نبعثلك خاص؛ افتح الرسائل الخاصة وجرب مرة ثانية.",ephemeral:true});}
+  if(name==="logs"){const menu=new StringSelectMenuBuilder().setCustomId("logs:type:"+i.guild.id).setPlaceholder("اختار نوع اللوق").addOptions(TYPES.map(x=>({label:x[1],value:x[0]})));return i.reply({content:"**إعداد اللوقات** — اختار نوع اللوق، وبعدها اختار الروم.",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
   if(name==="shortcut_add"){settings.shortcuts[i.guild.id]||={};settings.shortcuts[i.guild.id][i.options.getString("word")]=i.options.getString("reply");save();return i.reply("تم حفظ الاختصار.");}
   if(name==="shortcut_remove"){const k=i.options.getString("word"),s=settings.shortcuts[i.guild.id]||{};if(!s[k])return i.reply({content:"الاختصار مش موجود.",ephemeral:true});delete s[k];save();return i.reply("تم حذف الاختصار.");}
   if(name==="shortcut_list"){const a=Object.entries(settings.shortcuts[i.guild.id]||{});return i.reply(a.length?a.map(x=>"**"+x[0]+"** ← "+x[1]).join("\\n").slice(0,1900):"ما فيش اختصارات.");}
@@ -95,6 +97,34 @@ client.on("interactionCreate",async i=>{
  }
  if(!i.isStringSelectMenu()&&!i.isChannelSelectMenu())return;
  if(!high(i.member,i.guild,i.memberPermissions))return i.reply({content:"إعداد اللوقات للرتب العليا فقط.",ephemeral:true}).catch(()=>{});
+ if(i.customId.startsWith("logs:type:")){
+  const type=i.values[0],guildId=i.customId.split(":")[2],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+guildId+":"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);
+  return i.update({content:"اختار الروم اللي تبي تربط فيه "+(TYPES.find(x=>x[0]===type)?.[1]||type)+":",components:[new ActionRowBuilder().addComponents(menu)]});
+ }
+ if(i.customId.startsWith("logs:channel:")){
+  const parts=i.customId.split(":"),guildId=parts[2],type=parts[3],guild=await client.guilds.fetch(guildId).catch(()=>null);
+  if(!guild)return i.reply({content:"السيرفر مش متاح.",ephemeral:true});
+  const member=await guild.members.fetch(i.user.id).catch(()=>null);
+  if(!high(member,guild,member?.permissions))return i.reply({content:"ما عندكش صلاحية إعداد اللوقات.",ephemeral:true});
+  const id=i.values[0];settings.logs[guildId]||={};settings.logs[guildId][type]=id;save();
+  return i.update({content:"تم ربط "+(TYPES.find(x=>x[0]===type)?.[1]||type)+" بالروم <#"+id+">.",components:[]});
+ }
+ if(i.customId.startsWith("allow:command:")){
+  const guildId=i.customId.split(":")[2],guild=await client.guilds.fetch(guildId).catch(()=>null),member=guild?await guild.members.fetch(i.user.id).catch(()=>null):null;
+  if(!guild||!high(member,guild,member?.permissions))return i.reply({content:"ما عندكش صلاحية السماح.",ephemeral:true});
+  const command=i.values[0],row=new ActionRowBuilder().addComponents(new RoleSelectMenuBuilder().setCustomId("allow:role:"+guildId+":"+command).setPlaceholder("اختار رتبة (اختياري)").setMinValues(0).setMaxValues(1));
+  const row2=new ActionRowBuilder().addComponents(new UserSelectMenuBuilder().setCustomId("allow:user:"+guildId+":"+command).setPlaceholder("اختار شخص (اختياري)").setMinValues(0).setMaxValues(1));
+  return i.update({content:"اختر الرتبة أو الشخص اللي تبي تسمحله باستخدام **"+(COMMAND_CHOICES.find(x=>x[0]===command)?.[1]||command)+"**.",components:[row,row2]});
+ }
+ if(i.customId.startsWith("allow:role:")||i.customId.startsWith("allow:user:")){
+  const parts=i.customId.split(":"),kind=parts[1],guildId=parts[2],command=parts[3],guild=await client.guilds.fetch(guildId).catch(()=>null),member=guild?await guild.members.fetch(i.user.id).catch(()=>null):null;
+  if(!guild||!high(member,guild,member?.permissions))return i.reply({content:"ما عندكش صلاحية السماح.",ephemeral:true});
+  if(!i.values.length)return i.reply({content:"ما اخترتش أي رتبة أو شخص.",ephemeral:true});
+  const target=i.values[0];settings.permissions[guildId]||={};settings.permissions[guildId][command]||={roles:[],users:[]};
+  const entry=settings.permissions[guildId][command];
+  if(kind==="role"){if(!entry.roles.includes(target))entry.roles.push(target);}else{if(!entry.users.includes(target))entry.users.push(target);}
+  save();return i.update({content:"تم السماح لـ "+(kind==="role"?"الرتبة":"الشخص")+" باستخدام الأمر **"+(COMMAND_CHOICES.find(x=>x[0]===command)?.[1]||command)+"**.",components:[]});
+ }
  if(i.customId==="logs:type"){const type=i.values[0],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);return i.reply({content:"اختار الروم:",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
  if(i.customId.startsWith("logs:channel:")){const type=i.customId.split(":")[2],id=i.values[0];settings.logs[i.guild.id]||={};settings.logs[i.guild.id][type]=id;save();return i.update({content:"تم ربط "+(TYPES.find(x=>x[0]===type)?.[1]||type)+" بالروم <#"+id+">.",components:[]});}
 });

@@ -63,6 +63,12 @@ jobs:
             if (!cookie) throw new Error('Session cookie missing');
             const me = await fetch(base + '/cloud/api/me', {headers:{cookie}});
             if (!me.ok) throw new Error('Authenticated session check failed');
+            const crossSite = await fetch(base + '/cloud/api/logout', {
+              method:'POST', headers:{cookie, origin:'https://attacker.invalid'}
+            });
+            if (crossSite.status !== 403) throw new Error('Cross-origin state-changing request was not blocked');
+            const stillAuthenticated = await fetch(base + '/cloud/api/me', {headers:{cookie}});
+            if (!stillAuthenticated.ok) throw new Error('Rejected cross-origin request changed the session');
             const bots = await fetch(base + '/cloud/api/bots', {headers:{cookie}});
             if (!bots.ok || !Array.isArray((await bots.json()).bots)) throw new Error('Bots API smoke test failed');
             const logout = await fetch(base + '/cloud/api/logout', {method:'POST',headers:{cookie}});

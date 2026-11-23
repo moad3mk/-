@@ -13,7 +13,7 @@ settings.logs ||= {}; settings.shortcuts ||= {}; settings.permissions ||= {};
 function save(){fs.writeFileSync(FILE,JSON.stringify(settings,null,2));}
 function high(member,guild,permissions){return !!member&&(member.id===guild?.ownerId||!!permissions?.has?.("Administrator")||!!permissions?.has?.("ManageGuild")||!!member.permissions?.has?.("Administrator")||!!member.permissions?.has?.("ManageGuild")||!!member.roles?.cache?.some(r=>ROLE_IDS.includes(r.id)));}
 function canCommand(member,guild,command,permissions){if(high(member,guild,permissions))return true;const p=settings.permissions?.[guild.id]?.[command];if(!p)return false;if(p.users?.includes(member.id))return true;return !!member.roles?.cache?.some(r=>p.roles?.includes(r.id));}
-const COMMAND_CHOICES=[["ban","حظر"],["lock","قفل"],["unlock","فتح"],["clear","مسح"],["timeout","إسكات"],["untimeout","فك الإسكات"],["unban","فك الحظر"],["logs","اللوقات"],["shortcut_add","إضافة اختصار"],["shortcut_remove","حذف اختصار"],["shortcut_list","قائمة الاختصارات"]];
+const COMMAND_CHOICES=[["ban","حظر"],["lock","قفل"],["unlock","فتح"],["clear","مسح"],["timeout","إسكات"],["untimeout","فك الإسكات"],["unban","فك الحظر"],["logs","اللوقات"],["shortcut_add","إضافة اختصار"],["shortcut_remove","حذف اختصار"],["shortcut_list","قائمة الاختصارات"],["خط","خط"]];
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildModeration],partials:[Partials.Message,Partials.Channel,Partials.User,Partials.GuildMember]});
 const TYPES=[["ticket","لوق التكتات"],["messages","لوق الرسائل"],["members","لوق دخول وخروج"],["voice","لوق الصوتيات"],["actions","لوق الإجراءات"],["channels","لوق الرومات"],["roles","لوق الرتب"]];
 const commands=[
@@ -70,6 +70,7 @@ client.on("messageCreate",async m=>{
  if(cmd==="خروج"){const v=getVoiceConnection(m.guild.id);if(!v)return m.reply("مش داخل في روم صوتي.");v.destroy();return m.reply("طلعت من الروم الصوتي.");}
  const admin=["تف","ق","ف","م","اسكت","لوقات","اختصار"];
  if(cmd==="سماح"){if(!high(m.member,m.guild))return m.reply("أمر السماح للرتب العليا فقط.");return m.reply("باش تطلعلك لوحة السماح الخاصة بيك داخل الروم، استخدم أمر السلاش /allow.");}
+ if(cmd==="خط"){if(c!=="خط")return;if(!canCommand(m.member,m.guild,"خط"))return m.reply("ما عندكش سماح لاستخدام أمر خط.");return m.channel.send({content:"https://files.catbox.moe/zsaac6.gif"}).catch(()=>m.reply("ما قدرتش نرسل الـGIF."));}
  if(!admin.includes(cmd)&&!c.startsWith("فك تايم")&&!c.startsWith("فك باند"))return;
  if(!canCommand(m.member,m.guild,({"تف":"ban","ق":"lock","ف":"unlock","م":"clear","اسكت":"timeout","لوقات":"logs","اختصار":"shortcut_add"}[cmd]|| (c.startsWith("فك تايم")?"untimeout":c.startsWith("فك باند")?"unban":cmd))))return m.reply("ما عندكش سماح لاستخدام الأمر هذا.");
  
@@ -131,7 +132,7 @@ client.on("interactionCreate",async i=>{
   if(!i.values.length)return i.reply({content:"ما اخترتش أي رتبة أو شخص.",ephemeral:true});
   const target=i.values[0];settings.permissions[guildId]||={};settings.permissions[guildId][command]||={roles:[],users:[]};
   const entry=settings.permissions[guildId][command];
-  if(kind==="role"){if(!entry.roles.includes(target))entry.roles.push(target);}else{if(!entry.users.includes(target))entry.users.push(target);}
+  if(kind==="role"){const role=guild.roles.cache.get(target);if(!role||role.id===guild.id||role.managed)return i.reply({content:"الرتبة غير صالحة.",ephemeral:true});if(member.id!==guild.ownerId&&member.roles.highest.comparePositionTo(role)<=0)return i.reply({content:"تقدر تمنح السماح للرتب اللي تحت رتبتك فقط.",ephemeral:true});if(!entry.roles.includes(target))entry.roles.push(target);}else{if(!entry.users.includes(target))entry.users.push(target);}
   save();return i.update({content:"تم السماح لـ "+(kind==="role"?"الرتبة":"الشخص")+" باستخدام الأمر **"+(COMMAND_CHOICES.find(x=>x[0]===command)?.[1]||command)+"**.",components:[]});
  }
  if(i.customId==="logs:type"){const type=i.values[0],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);return i.reply({content:"اختار الروم:",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}

@@ -21,6 +21,20 @@ const loginAttempts = new Map();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 12 * 1024 * 1024, files: 1 } });
 const SESSION_TTL = 12 * 60 * 60 * 1000;
 
+// Periodically discard expired sessions and old login-attempt records.
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [token, session] of cloudSessions) {
+    if (session.expiresAt <= now) cloudSessions.delete(token);
+  }
+  for (const [ip, attempts] of loginAttempts) {
+    const recent = attempts.filter((time) => now - time < 15 * 60 * 1000);
+    if (recent.length) loginAttempts.set(ip, recent);
+    else loginAttempts.delete(ip);
+  }
+}, 10 * 60 * 1000);
+cleanupTimer.unref();
+
 if (!HOST_PASSWORD) {
   console.error("Missing HOST_PASSWORD environment variable. Set it before starting NEXO.");
   process.exit(1);
@@ -44,7 +58,7 @@ function readCookie(req, name) {
   for (const part of header.split(";")) {
     const item = part.trim();
     const index = item.indexOf("=");
-    if (index > -1 && item.slice(0, index) === name) return decodeURIComponent(item.slice(index + 1));
+    if (index > -1 && item.slice(0, index) === name) { try { return decodeURIComponent(item.slice(index + 1)); } catch (_) { return ""; } }
   }
   return "";
 }
@@ -222,6 +236,7 @@ function extractZip(buffer, destination) {
       const entries = [];
       const names = new Set();
       let totalSize = 0;
+      let hasRootEntry = false;
       let settled = false;
       const fail = (error) => {
         if (settled) return;
@@ -236,10 +251,16 @@ function extractZip(buffer, destination) {
         const normalized = path.posix.normalize(raw);
         const unixMode = (entry.externalFileAttributes >>> 16) & 0xFFFF;
         const fileType = unixMode & 0xF000;
-        if (!raw || raw.includes("\\") || raw.startsWith("/") || normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
+        const segments = raw.split("/");
+        if (!raw || raw.includes("\\") || raw.includes("\0") || raw.startsWith("/") ||
+            segments.some((part) => part === "." || part === "..") ||
+            normalized === ".." || normalized.startsWith("../") || normalized.includes("/../")) {
           return fail(new Error("الأرشيف يحتوي على مسار ملف غير آمن"));
         }
-        if (fileType === 0xA000) return fail(new Error("الروابط الرمزية غير مسموحة داخل الأرشيف"));
+        if (fileType !== 0 && fileType !== 0x8000 && fileType !== 0x4000) {
+          return fail(new Error("الأرشيف يحتوي على نوع ملف غير مسموح"));
+        }
+        if (raw === "index.js") hasRootEntry = true;
         if (names.has(normalized)) return fail(new Error("الأرشيف يحتوي على أسماء ملفات مكررة"));
         names.add(normalized);
         totalSize += entry.uncompressedSize || 0;
@@ -250,7 +271,7 @@ function extractZip(buffer, destination) {
       zip.on("end", async () => {
         if (settled) return;
         try {
-          if (!names.has("index.js")) throw new Error("لازم يكون ملف index.js في جذر ملف ZIP");
+          if (!hasRootEntry) throw new Error("لازم يكون ملف index.js عادي في جذر ملف ZIP");
           fs.mkdirSync(destination, { recursive: false });
           for (const entry of entries) {
             if (entry.fileName.endsWith("/")) {

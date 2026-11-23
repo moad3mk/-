@@ -319,13 +319,14 @@ app.put("/cloud/api/bots/:id/env", cloudAuth, (req, res) => {
   const variables = req.body && req.body.variables;
   if (!variables || typeof variables !== "object" || Array.isArray(variables)) return res.status(400).json({ error: "صيغة المتغيرات غير صحيحة" });
   const entries = Object.entries(variables);
-  if (entries.length > 100) return res.status(400).json({ error: "الحد الأقصى 100 متغير" });
+  if (entries.length > 60) return res.status(400).json({ error: "الحد الأقصى 60 متغير" });
+  if (Buffer.byteLength(JSON.stringify(variables), "utf8") > 32 * 1024) return res.status(400).json({ error: "حجم متغيرات البيئة تجاوز 32KB" });
   const clean = {};
   for (const [key, value] of entries) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || /^(PATH|HOME|NODE_OPTIONS|HOST_PASSWORD|PORT|PWD|SHELL|LD_PRELOAD)$/i.test(key)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || /^(PATH|HOME|NODE_OPTIONS|NODE_PATH|HOST_PASSWORD|PORT|PWD|SHELL|TMPDIR|TEMP|TMP|SYSTEMROOT|COMSPEC|PATHEXT|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|BASH_ENV|ENV|IFS|PYTHONPATH|PERL5OPT|RUBYOPT|JAVA_TOOL_OPTIONS)$/i.test(key) || /^(LD_|DYLD_|NPM_CONFIG_|npm_config_|GIT_CONFIG_)/i.test(key)) {
       return res.status(400).json({ error: "اسم متغير غير مسموح: " + key });
     }
-    if (typeof value !== "string" || value.length > 8000) return res.status(400).json({ error: "قيمة متغير غير صالحة: " + key });
+    if (typeof value !== "string" || value.length > 4000 || value.includes(String.fromCharCode(0))) return res.status(400).json({ error: "قيمة متغير غير صالحة: " + key });
     clean[key] = value;
   }
   try {

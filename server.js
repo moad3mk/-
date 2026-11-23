@@ -118,6 +118,36 @@ function getBots() {
 }
 
 app.get("/cloud/api/bots", cloudAuth, (_req, res) => res.json({ bots: getBots() }));
+
+app.post("/cloud/api/bots/:id/start", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  const folder = path.join(BOTS_DIR, id);
+  if (!fs.existsSync(path.join(folder, "index.js"))) return res.status(404).json({ error: "ملف index.js غير موجود" });
+  if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
+  try {
+    fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 });
+    if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت" });
+    res.json({ ok: true, message: "تم إرسال أمر التشغيل" });
+  } catch (error) { res.status(500).json({ error: "فشل التشغيل: " + error.message }); }
+});
+
+app.post("/cloud/api/bots/:id/stop", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  const child = processes.get(id);
+  if (!child) return res.status(404).json({ error: "البوت متوقف بالفعل" });
+  try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
+  try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
+  child.kill("SIGTERM");
+  res.json({ ok: true, message: "تم إرسال أمر الإيقاف" });
+});
+
+app.get("/cloud/api/bots/:id/logs", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  res.json({ logs: logs.get(id) || [] });
+});
 app.get("/api/status", auth, (_req, res) => res.json({ name: "NEXO PRIVATE HOST", bots: getBots() }));
 
 app.get("/api/logs/:id", auth, (req, res) => {
@@ -251,7 +281,7 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log("NEXO PRIVATE HOST listening on port " + PORT);
   for (const entry of fs.readdirSync(BOTS_DIR, { withFileTypes: true })) {
     if (entry.isDirectory() && validId(entry.name) && !entry.name.startsWith(".")) {
-      if (startBot(entry.name)) console.log("Auto-started bot: " + entry.name);
+      if (fs.existsSync(path.join(BOTS_DIR, entry.name, ".nexo-enabled")) && startBot(entry.name)) console.log("Auto-started bot: " + entry.name);
     }
   }
 });

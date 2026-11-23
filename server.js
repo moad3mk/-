@@ -479,7 +479,7 @@ function prepareBotCgroup(id) {
       !fs.existsSync(path.join(root, "cgroup.subtree_control"))) {
     throw new Error("لم يتم تجهيز مجلد cgroups v2 المفوض للخدمة");
   }
-  const enabled = fs.readFileSync(path.join(root, "cgroup.subtree_control"), "utf8").trim().split(/\\s+/);
+  const enabled = fs.readFileSync(path.join(root, "cgroup.subtree_control"), "utf8").trim().split(/\s+/);
   for (const controller of ["cpu", "memory", "pids"]) {
     if (!enabled.includes(controller)) throw new Error("متحكم cgroup غير مفعل: " + controller);
   }

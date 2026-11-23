@@ -16,7 +16,7 @@ label{display:block;margin:16px 0 8px;font-size:13px}input{width:100%;padding:13
 button{border:0;border-radius:11px;padding:12px 18px;background:linear-gradient(135deg,#648fff,#4e5bdd);color:white;font:700 14px system-ui;cursor:pointer}button.secondary{background:#263449}button:disabled{opacity:.6;cursor:wait}
 .error{color:#fda4af;font-size:13px;min-height:22px;margin-top:10px}.success{color:#86efc2;font-size:13px;min-height:22px;margin-top:10px}.hidden{display:none!important}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.metric-label{color:var(--muted);font-size:13px}.metric{font-size:25px;font-weight:800;margin-top:10px}
-.section{margin-top:25px}.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}.section h2{font-size:18px;margin:0}.bot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px}.botname{font-weight:700}.pill{font-size:12px;padding:6px 10px;border-radius:30px;background:#49371355;border:1px solid #76591c;color:#fcd34d}.pill.online{background:#103529;border-color:#1f765c;color:#86efc2}
+.section{margin-top:25px}.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}.section h2{font-size:18px;margin:0}.bot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px}.botname{font-weight:700}.bot-actions{display:flex;gap:8px;flex-wrap:wrap}.bot-actions button{padding:8px 12px;font-size:12px}.logs{white-space:pre-wrap;direction:ltr;text-align:left;max-height:260px;overflow:auto;background:#080e19;border:1px solid #263247;border-radius:12px;padding:14px;font:12px/1.7 ui-monospace,monospace;color:#cbd5e1}.pill{font-size:12px;padding:6px 10px;border-radius:30px;background:#49371355;border:1px solid #76591c;color:#fcd34d}.pill.online{background:#103529;border-color:#1f765c;color:#86efc2}
 .upload-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px}.notice{margin-top:18px;border:1px solid #34445e;background:#111c2d;border-radius:14px;padding:15px 18px;color:#cbd5e1;font-size:13px;line-height:1.9}
 footer{text-align:center;color:#64748b;padding:35px 15px;font-size:12px}
 @media(max-width:700px){.grid,.upload-grid{grid-template-columns:1fr}.welcome{align-items:start;flex-direction:column}header{padding:0 18px}.bot{align-items:start;flex-direction:column}}
@@ -48,7 +48,8 @@ footer{text-align:center;color:#64748b;padding:35px 15px;font-size:12px}
 </form>
 </div></section>
 <section class="section"><div class="section-head"><h2>قائمة البوتات</h2><button class="secondary" id="refresh">تحديث</button></div><div class="card" id="bots"><p class="muted">جاري تحميل البوتات...</p></div></section>
-<div class="notice">تنبيه أمني: ارفع ملفات تثق فيها فقط. المنصة تحفظ ملفات البوت ولا تثبّت مكتبات package.json ولا تشغّل البوت تلقائياً بعد الرفع حتى نضيف مرحلة تثبيت آمنة. بوت NEXO الموجود على Wispbyte مستقل ولن يظهر هنا حالياً.</div>
+<section class="section"><div class="section-head"><h2>سجل التشغيل</h2></div><div class="card"><div class="muted" id="logTitle">اختر «السجلات» من أحد البوتات لعرض آخر الرسائل.</div><pre class="logs" id="logOutput">لا توجد سجلات معروضة.</pre></div></section>
+<div class="notice">تنبيه أمني مهم: شغّل فقط ملفات بوتات تثق في مصدرها؛ كود البوت يعمل بصلاحيات حساب الخادم. التشغيل والإيقاف والسجلات متاحة الآن، لكن تثبيت مكتبات package.json مؤجل حتى نجهز عزلاً آمناً. بوت NEXO الموجود على Wispbyte مستقل ولن يظهر هنا حالياً.</div>
 </section>
 </main><footer>© 2026 NEXO CLOUD PRIVATE</footer>
 <script>
@@ -74,7 +75,12 @@ async function loadBots() {
     const row=document.createElement("div"); row.className="bot";
     const name=document.createElement("span"); name.className="botname"; name.textContent=bot.id;
     const state=document.createElement("span"); state.className="pill"+(bot.running?" online":""); state.textContent=bot.running?"يعمل":"متوقف";
-    row.append(name,state); $("bots").append(row);
+    const actions=document.createElement("div"); actions.className="bot-actions";
+    const toggle=document.createElement("button"); toggle.textContent=bot.running?"إيقاف":"تشغيل"; toggle.className=bot.running?"secondary":"";
+    toggle.addEventListener("click",async()=>{toggle.disabled=true;try{await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/"+(bot.running?"stop":"start"),{method:"POST"});await loadBots();}catch(error){alert(error.message);}finally{toggle.disabled=false;}});
+    const logButton=document.createElement("button"); logButton.textContent="السجلات"; logButton.className="secondary";
+    logButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/logs");$("logTitle").textContent="سجلات البوت: "+bot.id;$("logOutput").textContent=(result.logs||[]).map(item=>"["+item.time+"] "+item.line).join("\n")||"لا توجد سجلات حتى الآن."; }catch(error){alert(error.message);}});
+    actions.append(toggle,logButton); row.append(name,state,actions); $("bots").append(row);
   }
 }
 $("loginForm").addEventListener("submit", async (event) => {
@@ -89,7 +95,7 @@ $("uploadForm").addEventListener("submit", async (event) => {
   try {
     const result=await api("/cloud/api/upload",{method:"POST",body:form});
     $("uploadMessage").className="success";
-    $("uploadMessage").textContent=result.message+" — الملفات محفوظة. تثبيت المكتبات والتشغيل لم يُفعّلا بعد.";
+    $("uploadMessage").textContent=result.message+" — الملفات محفوظة. شغّل البوت من القائمة بعد التأكد من ملفاته.";
     $("uploadForm").reset(); await loadBots();
   } catch(error) { $("uploadMessage").className="error"; $("uploadMessage").textContent=error.message; }
   finally { $("uploadButton").disabled=false; }

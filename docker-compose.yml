@@ -1,0 +1,17 @@
+services:
+  nexo-cloud:
+    build: .
+    container_name: nexo-cloud
+    restart: unless-stopped
+    ports:
+      - "${NEXO_PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOST_PASSWORD: ${HOST_PASSWORD:?Set HOST_PASSWORD in your .env file}
+      NEXO_BOTS_DIR: /app/bots
+    volumes:
+      - nexo-bots-data:/app/bots
+
+volumes:
+  nexo-bots-data:

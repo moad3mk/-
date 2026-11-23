@@ -87,7 +87,7 @@ async function loadBots() {
     logButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/logs");$("logTitle").textContent="سجلات البوت: "+bot.id;$("logOutput").textContent=(result.logs||[]).map(item=>"["+item.time+"] "+item.line).join("\n")||"لا توجد سجلات حتى الآن."; }catch(error){alert(error.message);}});
     const envButton=document.createElement("button"); envButton.textContent="البيئة"; envButton.className="secondary";
     envButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/env");$("envBot").value=bot.id;$("envEditor").value=JSON.stringify(result.variables||{},null,2);$("envMessage").textContent="تم تحميل متغيرات "+bot.id+"."; }catch(error){alert(error.message);}});
-    actions.append(toggle,restartButton,installButton,logButton,envButton); row.append(name,state,actions); $("bots").append(row);
+    installButton.disabled=bot.running; actions.append(toggle,restartButton,logButton,envButton); if(bot.hasPackage) actions.insertBefore(installButton,logButton); row.append(name,state,actions); $("bots").append(row);
   }
 }
 $("loginForm").addEventListener("submit", async (event) => {

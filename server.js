@@ -142,6 +142,32 @@ app.post("/cloud/api/bots/:id/stop", cloudAuth, (req, res) => {
   res.json({ ok: true, message: "تم إرسال أمر الإيقاف" });
 });
 
+app.post("/cloud/api/bots/:id/restart", cloudAuth, async (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  const folder = path.join(BOTS_DIR, id);
+  if (!fs.existsSync(path.join(folder, "index.js"))) return res.status(404).json({ error: "ملف index.js غير موجود" });
+  const child = processes.get(id);
+  if (!child) {
+    try {
+      fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 });
+      if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت" });
+      return res.json({ ok: true, message: "تم تشغيل البوت" });
+    } catch (_) { return res.status(500).json({ error: "تعذر تشغيل البوت" }); }
+  }
+  try { fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 }); } catch (_) {}
+  const exited = new Promise((resolve) => child.once("exit", resolve));
+  child.kill("SIGTERM");
+  const graceful = await Promise.race([exited.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5000))]);
+  if (!graceful && processes.get(id) === child) {
+    child.kill("SIGKILL");
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1500))]);
+  }
+  if (processes.has(id)) return res.status(500).json({ error: "تعذر إيقاف النسخة القديمة" });
+  if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت بعد إعادة التشغيل" });
+  res.json({ ok: true, message: "تمت إعادة تشغيل البوت" });
+});
+
 app.get("/cloud/api/bots/:id/logs", cloudAuth, (req, res) => {
   const id = req.params.id;
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });

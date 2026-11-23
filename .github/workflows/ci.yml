@@ -23,7 +23,7 @@ jobs:
           const fs = require('node:fs');
           const vm = require('node:vm');
           const html = fs.readFileSync('cloud/index.html', 'utf8');
-          const scripts = [...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+          const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)];
           if (!scripts.length) throw new Error('No inline dashboard script found');
           for (const script of scripts) new vm.Script(script[1]);
           JSON.parse(fs.readFileSync('package.json', 'utf8'));

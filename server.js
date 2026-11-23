@@ -46,9 +46,10 @@ if (!HOST_PASSWORD || HOST_PASSWORD.length < 16) {
   process.exit(1);
 }
 
-fs.mkdirSync(BOTS_DIR, { recursive: true });
+fs.mkdirSync(BOTS_DIR, { recursive: true, mode: 0o700 });
+try { fs.chmodSync(BOTS_DIR, 0o700); } catch (_) {}
 app.set("trust proxy", process.env.TRUST_PROXY === "true" ? 1 : false);
-app.use(helmet({ contentSecurityPolicy: false }));
+app.use(helmet({ contentSecurityPolicy: { directives: { defaultSrc: ["\'self\'"], scriptSrc: ["\'self\'", "\'unsafe-inline\'"], styleSrc: ["\'self\'", "\'unsafe-inline\'"], imgSrc: ["\'self\'", "data:"], connectSrc: ["\'self\'"], baseUri: ["\'self\'"], formAction: ["\'self\'"], frameAncestors: ["\'none\'"] } } }));
 app.use(express.json({ limit: "32kb" }));
 app.use("/cloud", express.static(CLOUD_DIR));
 app.use(express.static(path.join(ROOT, "public")));
@@ -384,7 +385,7 @@ function extractZip(buffer, destination) {
         if (settled) return;
         try {
           if (!hasRootEntry) throw new Error("لازم يكون ملف index.js عادي في جذر ملف ZIP");
-          fs.mkdirSync(destination, { recursive: false });
+          fs.mkdirSync(destination, { recursive: false, mode: 0o700 });
           for (const entry of entries) {
             if (entry.fileName.endsWith("/")) {
               const dir = path.join(destination, ...entry.fileName.split("/").filter(Boolean));

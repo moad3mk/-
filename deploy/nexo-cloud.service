@@ -1,0 +1,36 @@
+[Unit]
+Description=NEXO Cloud bot hosting panel
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=nexo
+Group=nexo
+WorkingDirectory=/opt/nexo
+EnvironmentFile=/etc/nexo/nexo.env
+Environment=NEXO_CGROUP_ROOT=/sys/fs/cgroup/system.slice/nexo-cloud.service
+ExecStart=/usr/bin/node /opt/nexo/server.js
+Restart=always
+RestartSec=3
+
+# Delegate CPU, memory and process controllers to NEXO so each bot gets
+# its own cgroup v2 with enforceable resource limits.
+Delegate=cpu memory pids
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=no
+PrivateTmp=yes
+PrivateDevices=no
+LockPersonality=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+AmbientCapabilities=
+ReadWritePaths=/opt/nexo/bots
+
+[Install]
+WantedBy=multi-user.target

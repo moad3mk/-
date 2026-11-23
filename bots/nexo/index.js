@@ -1,4 +1,4 @@
-const {Client,GatewayIntentBits,Partials,ChannelType,EmbedBuilder,ActionRowBuilder,StringSelectMenuBuilder,ChannelSelectMenuBuilder}=require("discord.js");
+const {Client,GatewayIntentBits,Partials,ChannelType,EmbedBuilder,ActionRowBuilder,StringSelectMenuBuilder,ChannelSelectMenuBuilder,SlashCommandBuilder,REST,Routes}=require("discord.js");
 const {joinVoiceChannel,getVoiceConnection}=require("@discordjs/voice");
 const fs=require("fs"),path=require("path");
 const TOKEN=process.env.DISCORD_TOKEN;
@@ -12,10 +12,25 @@ function save(){fs.writeFileSync(FILE,JSON.stringify(settings,null,2));}
 function high(member){return !!member&&ROLE_IDS.length>0&&member.roles.cache.some(r=>ROLE_IDS.includes(r.id));}
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildModeration],partials:[Partials.Message,Partials.Channel,Partials.User,Partials.GuildMember]});
 const TYPES=[["ticket","لوق التكتات"],["messages","لوق الرسائل"],["members","لوق دخول وخروج"],["voice","لوق الصوتيات"],["actions","لوق الإجراءات"],["channels","لوق الرومات"],["roles","لوق الرتب"]];
+const commands=[
+ new SlashCommandBuilder().setName("ban").setDescription("حظر عضو").addUserOption(o=>o.setName("member").setDescription("العضو").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("السبب")),
+ new SlashCommandBuilder().setName("lock").setDescription("قفل الروم").addChannelOption(o=>o.setName("channel").setDescription("الروم (اختياري)").addChannelTypes(ChannelType.GuildText)),
+ new SlashCommandBuilder().setName("unlock").setDescription("فتح الروم").addChannelOption(o=>o.setName("channel").setDescription("الروم (اختياري)").addChannelTypes(ChannelType.GuildText)),
+ new SlashCommandBuilder().setName("clear").setDescription("مسح رسائل").addIntegerOption(o=>o.setName("amount").setDescription("عدد الرسائل من 1 إلى 100").setMinValue(1).setMaxValue(100).setRequired(true)),
+ new SlashCommandBuilder().setName("timeout").setDescription("إسكات عضو مؤقتاً").addUserOption(o=>o.setName("member").setDescription("العضو").setRequired(true)).addStringOption(o=>o.setName("duration").setDescription("مثال 10m أو 2h أو 1d").setRequired(true)).addStringOption(o=>o.setName("reason").setDescription("السبب")),
+ new SlashCommandBuilder().setName("untimeout").setDescription("فك إسكات عضو").addUserOption(o=>o.setName("member").setDescription("العضو").setRequired(true)),
+ new SlashCommandBuilder().setName("unban").setDescription("فك حظر عضو").addStringOption(o=>o.setName("user_id").setDescription("معرّف المستخدم").setRequired(true)),
+ new SlashCommandBuilder().setName("logs").setDescription("إعداد رومات اللوقات"),
+ new SlashCommandBuilder().setName("join").setDescription("دخول الروم الصوتي الذي أنت فيه"),
+ new SlashCommandBuilder().setName("leave").setDescription("خروج من الروم الصوتي"),
+ new SlashCommandBuilder().setName("shortcut_add").setDescription("إضافة رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)).addStringOption(o=>o.setName("reply").setDescription("الرد").setRequired(true)),
+ new SlashCommandBuilder().setName("shortcut_remove").setDescription("حذف رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)),
+ new SlashCommandBuilder().setName("shortcut_list").setDescription("عرض الردود التلقائية")
+].map(x=>x.toJSON());
 const label=u=>u?u.tag+" ("+u.id+")":"عضو غير معروف";
 async function log(guild,type,title,desc){const id=settings.logs[guild.id]?.[type];if(!id)return;const ch=await guild.channels.fetch(id).catch(()=>null);if(ch&&ch.isTextBased())ch.send({embeds:[new EmbedBuilder().setColor(0x648cff).setTitle(title).setDescription(String(desc||"—").slice(0,4000)).setTimestamp()]}).catch(()=>{});}
 function duration(s){const m=/^(\d+)(s|m|h|d)$/i.exec(s||"");if(!m)return null;const n=+m[1];if(!n||n>40320)return null;return n*({s:1000,m:60000,h:3600000,d:86400000})[m[2].toLowerCase()];}
-client.once("ready",()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");});
+client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
 client.on("messageCreate",async m=>{
  if(!m.guild||m.author.bot)return;
  const c=m.content.trim(),p=c.split(/\s+/),cmd=p[0];
@@ -37,7 +52,26 @@ client.on("messageCreate",async m=>{
  if(cmd==="اختصار"){const sub=p[1];if(sub==="إضافة"){const a=c.slice("اختصار إضافة".length).trim().split("|");if(a.length<2||!a[0].trim()||!a.slice(1).join("|").trim())return m.reply("استعمال: اختصار إضافة الكلمة | الرد");settings.shortcuts[m.guild.id]||={};settings.shortcuts[m.guild.id][a[0].trim()]=a.slice(1).join("|").trim();save();return m.reply("تم حفظ الاختصار.");}if(sub==="حذف"){const k=p.slice(2).join(" ");if(!shortcuts[k])return m.reply("الاختصار مش موجود.");delete shortcuts[k];save();return m.reply("تم حذف الاختصار.");}if(sub==="قائمة"){const a=Object.entries(shortcuts);return m.reply(a.length?a.map(x=>"**"+x[0]+"** ← "+x[1]).join("\n").slice(0,1900):"ما فيش اختصارات.");}return m.reply("الأوامر: اختصار إضافة الكلمة | الرد — اختصار حذف الكلمة — اختصار قائمة");}
 });
 client.on("interactionCreate",async i=>{
- if(!i.guild||(!i.isStringSelectMenu()&&!i.isChannelSelectMenu()))return;
+ if(!i.guild)return;
+ if(i.isChatInputCommand()){
+  const name=i.commandName,admin=["ban","lock","unlock","clear","timeout","untimeout","unban","logs","shortcut_add","shortcut_remove","shortcut_list"];
+  if(admin.includes(name)&&!high(i.member))return i.reply({content:"الأمر هذا للرتب العليا المسموح بها فقط.",ephemeral:true});
+  if(admin.includes(name)&&!ROLE_IDS.length)return i.reply({content:"اضبط ADMIN_ROLE_IDS في إعدادات الاستضافة بمعرّفات الرتب العليا.",ephemeral:true});
+  if(name==="join"){const v=i.member.voice?.channel;if(!v)return i.reply({content:"خش للروم الصوتي الأول.",ephemeral:true});try{joinVoiceChannel({channelId:v.id,guildId:i.guild.id,adapterCreator:i.guild.voiceAdapterCreator,selfDeaf:true});return i.reply("دخلت معاك للروم: "+v.name);}catch{return i.reply({content:"ما قدرتش ندخل للروم الصوتي.",ephemeral:true});}}
+  if(name==="leave"){const v=getVoiceConnection(i.guild.id);if(!v)return i.reply({content:"مش داخل في روم صوتي.",ephemeral:true});v.destroy();return i.reply("طلعت من الروم الصوتي.");}
+  if(name==="ban"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null);if(!t)return i.reply({content:"ما لقيتش العضو.",ephemeral:true});if(!t.bannable)return i.reply({content:"ما نقدرش نحظر العضو؛ راجع صلاحيات البوت وترتيب الرتب.",ephemeral:true});await t.ban({reason:i.options.getString("reason")||"بواسطة "+i.user.tag}).then(()=>i.reply("تم حظر "+t.user.tag+".")).catch(()=>i.reply({content:"فشل الحظر.",ephemeral:true}));return;}
+  if(name==="lock"||name==="unlock"){const ch=i.options.getChannel("channel")||i.channel;return ch.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:name==="lock"?false:null}).then(()=>i.reply(name==="lock"?"تم قفل الروم.":"تم فتح الروم.")).catch(()=>i.reply({content:"فشل تعديل صلاحيات الروم.",ephemeral:true}));}
+  if(name==="clear"){const n=i.options.getInteger("amount");const d=await i.channel.bulkDelete(n,true).catch(()=>null);if(!d)return i.reply({content:"فشل المسح؛ الرسائل الأقدم من 14 يوم لا تنمسح جماعياً.",ephemeral:true});return i.reply("تم مسح "+d.size+" رسالة.");}
+  if(name==="timeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null),ms=duration(i.options.getString("duration"));if(!t||!ms)return i.reply({content:"المدة غير صحيحة. استخدم 10m أو 2h أو 1d.",ephemeral:true});return t.timeout(ms,i.options.getString("reason")||"بواسطة "+i.user.tag).then(()=>i.reply("تم إسكات "+t.user.tag+".")).catch(()=>i.reply({content:"فشل الإسكات.",ephemeral:true}));}
+  if(name==="untimeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null);if(!t)return i.reply({content:"ما لقيتش العضو.",ephemeral:true});return t.timeout(null,"إزالة الإسكات بواسطة "+i.user.tag).then(()=>i.reply("تم فك الإسكات.")).catch(()=>i.reply({content:"فشل فك الإسكات.",ephemeral:true}));}
+  if(name==="unban"){const id=i.options.getString("user_id");if(!/^\\d{17,20}$/.test(id))return i.reply({content:"معرّف المستخدم غير صحيح.",ephemeral:true});return i.guild.members.unban(id).then(()=>i.reply("تم فك الحظر.")).catch(()=>i.reply({content:"ما قدرتش نفك الحظر؛ تأكد من المعرّف.",ephemeral:true}));}
+  if(name==="logs"){const menu=new StringSelectMenuBuilder().setCustomId("logs:type").setPlaceholder("اختار نوع اللوق").addOptions(TYPES.map(x=>({label:x[1],value:x[0]})));return i.reply({content:"اختار نوع اللوق، وبعدها اختار الروم:",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
+  if(name==="shortcut_add"){settings.shortcuts[i.guild.id]||={};settings.shortcuts[i.guild.id][i.options.getString("word")]=i.options.getString("reply");save();return i.reply("تم حفظ الاختصار.");}
+  if(name==="shortcut_remove"){const k=i.options.getString("word"),s=settings.shortcuts[i.guild.id]||{};if(!s[k])return i.reply({content:"الاختصار مش موجود.",ephemeral:true});delete s[k];save();return i.reply("تم حذف الاختصار.");}
+  if(name==="shortcut_list"){const a=Object.entries(settings.shortcuts[i.guild.id]||{});return i.reply(a.length?a.map(x=>"**"+x[0]+"** ← "+x[1]).join("\\n").slice(0,1900):"ما فيش اختصارات.");}
+  return;
+ }
+ if(!i.isStringSelectMenu()&&!i.isChannelSelectMenu())return;
  if(!high(i.member))return i.reply({content:"إعداد اللوقات للرتب العليا فقط.",ephemeral:true}).catch(()=>{});
  if(i.customId==="logs:type"){const type=i.values[0],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);return i.reply({content:"اختار الروم:",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
  if(i.customId.startsWith("logs:channel:")){const type=i.customId.split(":")[2],id=i.values[0];settings.logs[i.guild.id]||={};settings.logs[i.guild.id][type]=id;save();return i.update({content:"تم ربط "+(TYPES.find(x=>x[0]===type)?.[1]||type)+" بالروم <#"+id+">.",components:[]});}

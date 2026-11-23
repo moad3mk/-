@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101522">
+  <title>NEXO PRIVATE HOST</title>
+  <style>
+    :root{color-scheme:dark;--bg:#0b1020;--panel:#141c2d;--line:#26334b;--text:#eef3ff;--muted:#9ba9c2;--blue:#648cff;--green:#38c98a;--red:#ff6577}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top,#182644,var(--bg) 55%);font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:var(--text);min-height:100vh}
+    main{width:min(900px,92%);margin:48px auto}.top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+    h1{font-size:27px;margin:0}.sub{color:var(--muted);margin:8px 0 26px}.panel,.bot{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0}
+    input{width:100%;padding:13px;border-radius:10px;border:1px solid var(--line);background:#0d1424;color:var(--text);margin:8px 0 12px}
+    button{border:0;border-radius:10px;padding:10px 15px;font-weight:700;cursor:pointer;background:var(--blue);color:white;margin:4px}
+    button.stop{background:#63303c}button:disabled{opacity:.45;cursor:not-allowed}
+    .row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.muted{color:var(--muted);font-size:14px}
+    .state{font-size:13px;padding:5px 10px;border-radius:20px;background:#29354b}.on{color:var(--green)}.off{color:var(--muted)}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#090e18;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:220px;overflow:auto;color:#cbd7ee;font-size:12px}
+    #message{color:#ffd38a;min-height:22px}.hidden{display:none}
+  </style>
+</head>
+<body>
+<main>
+  <div class="top"><h1>◈ NEXO PRIVATE HOST</h1><span class="state">PRIVATE PANEL</span></div>
+  <p class="sub">لوحة خاصة لمتابعة وتشغيل بوتاتك</p>
+  <section class="panel" id="login">
+    <strong>دخول المالك</strong>
+    <input id="password" type="password" placeholder="كلمة مرور اللوحة" autocomplete="current-password">
+    <button id="loginBtn">دخول</button>
+    <div class="muted">كلمة المرور هي HOST_PASSWORD التي تضبطها في إعدادات الاستضافة.</div>
+  </section>
+  <section id="dashboard" class="hidden">
+    <div class="row"><h2>بوتاتي</h2><button id="refresh">تحديث</button></div>
+    <div id="bots"></div>
+  </section>
+  <p id="message"></p>
+</main>
+<script>
+  let password = sessionStorage.getItem("nexo_password") || "";
+  const $ = (id) => document.getElementById(id);
+  async function api(url, options={}) {
+    const response = await fetch(url, {...options, headers:{"Content-Type":"application/json","x-host-password":password,...(options.headers||{})}});
+    const data = await response.json().catch(()=>({}));
+    if (!response.ok) throw new Error(data.error || "حدث خطأ");
+    return data;
+  }
+  function showDashboard(){ $("login").classList.add("hidden"); $("dashboard").classList.remove("hidden"); loadBots(); }
+  async function loadBots(){
+    try{
+      const data=await api("/api/status");
+      $("bots").innerHTML="";
+      if(!data.bots.length){$("bots").innerHTML='<div class="panel muted">ما فيش بوتات توا. أضف مجلد كل بوت داخل مجلد bots وخلي ملف التشغيل اسمه index.js.</div>';return;}
+      for(const bot of data.bots){
+        const card=document.createElement("section");card.className="bot";
+        const row=document.createElement("div");row.className="row";
+        const title=document.createElement("strong");title.textContent=bot.id;
+        const state=document.createElement("span");state.className="state "+(bot.running?"on":"off");state.textContent=bot.running?"● شغال":"● متوقف";
+        row.append(title,state);card.append(row);
+        if(!bot.entry){const note=document.createElement("p");note.className="muted";note.textContent="ناقص ملف index.js داخل مجلد البوت";card.append(note);}
+        const start=document.createElement("button");start.textContent="تشغيل";start.disabled=bot.running||!bot.entry;
+        start.onclick=()=>action("/api/start/"+encodeURIComponent(bot.id));
+        const stop=document.createElement("button");stop.textContent="إيقاف";stop.className="stop";stop.disabled=!bot.running;
+        stop.onclick=()=>action("/api/stop/"+encodeURIComponent(bot.id));
+        const logs=document.createElement("button");logs.textContent="السجل";logs.onclick=()=>showLogs(bot.id,card);
+        card.append(start,stop,logs);$("bots").append(card);
+      }
+    }catch(e){$("message").textContent=e.message;if(e.message.includes("كلمة مرور"))logout();}
+  }
+  async function action(url){try{const d=await api(url,{method:"POST"});$("message").textContent=d.message;await loadBots();}catch(e){$("message").textContent=e.message;}}
+  async function showLogs(id,card){try{const d=await api("/api/logs/"+encodeURIComponent(id));let pre=card.querySelector("pre");if(!pre){pre=document.createElement("pre");card.append(pre);}pre.textContent=d.logs.map(x=>new Date(x.time).toLocaleTimeString()+"  "+x.line).join("\n")||"لا توجد سجلات بعد";}catch(e){$("message").textContent=e.message;}}
+  function logout(){sessionStorage.removeItem("nexo_password");password="";$("dashboard").classList.add("hidden");$("login").classList.remove("hidden");}
+  $("loginBtn").onclick=async()=>{password=$("password").value;try{await api("/api/status");sessionStorage.setItem("nexo_password",password);$("message").textContent="تم الدخول";showDashboard();}catch(e){$("message").textContent=e.message;}};
+  $("refresh").onclick=loadBots;
+  if(password)showDashboard();
+</script>
+</body>
+</html>

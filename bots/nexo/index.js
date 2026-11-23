@@ -8,6 +8,7 @@ const DATA=path.join(__dirname,"data"),FILE=path.join(DATA,"settings.json");
 fs.mkdirSync(DATA,{recursive:true});
 let settings={logs:{},shortcuts:{},permissions:{}};
 try{settings=JSON.parse(fs.readFileSync(FILE,"utf8"));}catch{}
+settings.logs ||= {}; settings.shortcuts ||= {}; settings.permissions ||= {};
 function save(){fs.writeFileSync(FILE,JSON.stringify(settings,null,2));}
 function high(member){return !!member&&ROLE_IDS.length>0&&member.roles.cache.some(r=>ROLE_IDS.includes(r.id));}
 function canCommand(member,guildId,command){if(high(member))return true;const p=settings.permissions?.[guildId]?.[command];if(!p)return false;if(p.users?.includes(member.id))return true;return !!member.roles?.cache?.some(r=>p.roles?.includes(r.id));}

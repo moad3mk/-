@@ -453,17 +453,38 @@ function stopBotProcess(child, graceMs = 5000) {
     timer.unref();
   });
 }
+function sandboxCommand(id) {
+  if (process.platform !== "linux") throw new Error("العزل الآمن متاح حالياً على Linux فقط");
+  const bwrap = ["/usr/bin/bwrap", "/bin/bwrap"].find((candidate) => fs.existsSync(candidate));
+  if (!bwrap) throw new Error("أداة العزل bubblewrap غير مثبتة؛ تم رفض تشغيل البوت بدون عزل");
+  const folder = path.join(BOTS_DIR, id);
+  const args = [
+    "--die-with-parent", "--new-session", "--unshare-all", "--share-net",
+    "--ro-bind", "/usr", "/usr",
+    "--ro-bind", "/etc", "/etc",
+    "--ro-bind", "/lib", "/lib",
+    "--proc", "/proc", "--dev", "/dev",
+    "--tmpfs", "/tmp",
+    "--bind", folder, "/workspace",
+    "--chdir", "/workspace",
+    "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+    "--setenv", "HOME", "/tmp",
+    "--setenv", "NODE_ENV", "production"
+  ];
+  for (const [key, value] of Object.entries(readBotEnv(id))) args.push("--setenv", key, value);
+  args.push("--", process.execPath, "/workspace/index.js");
+  return { command: bwrap, args };
+}
+
 function startBot(id) {
   if (!validId(id) || processes.has(id) || processes.size >= MAX_RUNNING_BOTS) return false;
   const folder = path.join(BOTS_DIR, id);
   const entry = path.join(folder, "index.js");
   if (!fs.existsSync(entry)) return false;
-  const baseEnv = {};
-  for (const key of ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "SYSTEMROOT"]) {
-    if (process.env[key]) baseEnv[key] = process.env[key];
-  }
-  baseEnv.NODE_ENV = "production";
-  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
+  let sandbox;
+  try { sandbox = sandboxCommand(id); }
+  catch (error) { addLog(id, "رفض التشغيل: " + error.message); return false; }
+  const child = spawn(sandbox.command, sandbox.args, { cwd: folder, env: { PATH: process.env.PATH || "/usr/bin:/bin", HOME: "/tmp" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: true });
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));

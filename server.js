@@ -523,8 +523,7 @@ function sandboxCommand(id) {
   const args = [
     "--die-with-parent", "--new-session", "--unshare-all", "--share-net",
     "--ro-bind", "/usr", "/usr",
-    "--ro-bind", "/etc", "/etc",
-    "--ro-bind", "/lib", "/lib",
+    "--dir", "/etc",
     "--proc", "/proc", "--dev", "/dev",
     "--tmpfs", "/tmp",
     "--bind", folder, "/workspace",
@@ -534,6 +533,16 @@ function sandboxCommand(id) {
     "--setenv", "HOME", "/tmp",
     "--setenv", "NODE_ENV", "production"
   ];
+  for (const file of ["/etc/resolv.conf", "/etc/hosts", "/etc/nsswitch.conf", "/etc/passwd", "/etc/group", "/etc/localtime"]) {
+    if (fs.existsSync(file)) args.push("--ro-bind", file, file);
+  }
+  for (const dir of ["/etc/ssl/certs", "/etc/pki/tls/certs"]) {
+    if (fs.existsSync(dir)) args.push("--ro-bind", dir, dir);
+  }
+  for (const file of ["/etc/ssl/cert.pem", "/etc/ssl/certs/ca-certificates.crt"]) {
+    if (fs.existsSync(file)) args.push("--ro-bind", file, file);
+  }
+  if (fs.existsSync("/lib")) args.push("--ro-bind", "/lib", "/lib");
   if (fs.existsSync("/lib64")) args.push("--ro-bind", "/lib64", "/lib64");
   for (const [key, value] of Object.entries(readBotEnv(id))) {
     if (key === "NODE_ENV") continue;
@@ -543,7 +552,7 @@ function sandboxCommand(id) {
 }
 
 function startBot(id) {
-  if (!validId(id) || processes.has(id) || processes.size >= MAX_RUNNING_BOTS) return false;
+  if (!validId(id) || installs.has(id) || processes.has(id) || processes.size >= MAX_RUNNING_BOTS) return false;
   const folder = path.join(BOTS_DIR, id);
   const entry = path.join(folder, "index.js");
   if (!fs.existsSync(entry)) return false;
@@ -580,7 +589,7 @@ app.post("/api/start/:id", auth, (req, res) => {
   if (processes.size >= MAX_RUNNING_BOTS) return res.status(429).json({ error: "وصلت للحد الأقصى للبوتات الشغالة (" + MAX_RUNNING_BOTS + ")" });
   const entry = path.join(BOTS_DIR, id, "index.js");
   if (!fs.existsSync(entry)) return res.status(404).json({ error: "لم أجد bots/" + id + "/index.js" });
-  startBot(id);
+  if (!startBot(id)) return res.status(503).json({ error: "تعذر التشغيل: العزل أو حدود الموارد غير متاحة" });
   res.json({ ok: true, message: "بدأ تشغيل " + id });
 });
 

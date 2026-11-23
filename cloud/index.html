@@ -4,7 +4,7 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#090d18"><title>NEXO CLOUD PRIVATE</title>
 <style>
-:root{color-scheme:dark;--bg:#090d18;--line:#263247;--muted:#94a3b8;--text:#f8fafc;--blue:#5b8cff;--green:#32d399}
+:root{color-scheme:dark;--bg:#090d18;--line:#263247;--muted:#94a3b8;--text:#f8fafc;--blue:#5b8cff}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 85% 0%,#172b50 0,transparent 38%),var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;min-height:100vh}
 header{height:76px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 5%;background:#090d18cc;position:sticky;top:0;backdrop-filter:blur(14px)}
 .brand{display:flex;align-items:center;gap:12px;font-weight:800;letter-spacing:.5px}.logo{width:40px;height:40px;border-radius:13px;background:linear-gradient(135deg,#77a5ff,#4654d9);display:grid;place-items:center;font-size:21px;box-shadow:0 8px 25px #4565db55}
@@ -12,14 +12,14 @@ header{height:76px;border-bottom:1px solid var(--line);display:flex;align-items:
 main{max-width:1050px;margin:42px auto;padding:0 22px}.welcome{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:28px}.eyebrow{color:#8fb1ff;font-size:13px;font-weight:700}.welcome h1{font-size:clamp(27px,5vw,42px);margin:8px 0}.welcome p{color:var(--muted);margin:0;line-height:1.8}
 .card{background:linear-gradient(145deg,#151f31,#101725);border:1px solid var(--line);border-radius:18px;padding:22px;box-shadow:0 12px 35px #0002}
 .login{max-width:430px;margin:55px auto}.login h2{margin:0 0 8px}.muted{color:var(--muted);font-size:13px;line-height:1.8}
-label{display:block;margin:20px 0 8px;font-size:13px}input{width:100%;padding:14px;border-radius:11px;border:1px solid #34445e;background:#0b1220;color:white;font:inherit;outline:none}input:focus{border-color:var(--blue)}
-button{border:0;border-radius:11px;padding:12px 18px;background:linear-gradient(135deg,#648fff,#4e5bdd);color:white;font:700 14px system-ui;cursor:pointer}button.secondary{background:#263449}button:disabled{opacity:.6;cursor:wait}.actions{display:flex;gap:10px;align-items:center;margin-top:15px}
-.error{color:#fda4af;font-size:13px;min-height:22px;margin-top:10px}.hidden{display:none!important}
+label{display:block;margin:16px 0 8px;font-size:13px}input{width:100%;padding:13px;border-radius:11px;border:1px solid #34445e;background:#0b1220;color:white;font:inherit;outline:none}input:focus{border-color:var(--blue)}
+button{border:0;border-radius:11px;padding:12px 18px;background:linear-gradient(135deg,#648fff,#4e5bdd);color:white;font:700 14px system-ui;cursor:pointer}button.secondary{background:#263449}button:disabled{opacity:.6;cursor:wait}
+.error{color:#fda4af;font-size:13px;min-height:22px;margin-top:10px}.success{color:#86efc2;font-size:13px;min-height:22px;margin-top:10px}.hidden{display:none!important}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}.metric-label{color:var(--muted);font-size:13px}.metric{font-size:25px;font-weight:800;margin-top:10px}
 .section{margin-top:25px}.section-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:13px}.section h2{font-size:18px;margin:0}.bot{display:flex;align-items:center;justify-content:space-between;gap:14px;margin-top:10px}.botname{font-weight:700}.pill{font-size:12px;padding:6px 10px;border-radius:30px;background:#49371355;border:1px solid #76591c;color:#fcd34d}.pill.online{background:#103529;border-color:#1f765c;color:#86efc2}
-.notice{margin-top:18px;border:1px solid #34445e;background:#111c2d;border-radius:14px;padding:15px 18px;color:#cbd5e1;font-size:13px;line-height:1.9}
+.upload-grid{display:grid;grid-template-columns:1fr 1.4fr;gap:14px}.notice{margin-top:18px;border:1px solid #34445e;background:#111c2d;border-radius:14px;padding:15px 18px;color:#cbd5e1;font-size:13px;line-height:1.9}
 footer{text-align:center;color:#64748b;padding:35px 15px;font-size:12px}
-@media(max-width:700px){.grid{grid-template-columns:1fr}.welcome{align-items:start;flex-direction:column}header{padding:0 18px}.bot{align-items:start;flex-direction:column}}
+@media(max-width:700px){.grid,.upload-grid{grid-template-columns:1fr}.welcome{align-items:start;flex-direction:column}header{padding:0 18px}.bot{align-items:start;flex-direction:column}}
 </style></head>
 <body>
 <header><div class="brand"><div class="logo">N</div><span>NEXO CLOUD <span style="color:#8fb1ff">PRIVATE</span></span></div><span class="tag">إدارة بوتات Discord</span></header>
@@ -35,14 +35,26 @@ footer{text-align:center;color:#64748b;padding:35px 15px;font-size:12px}
 <div class="card"><div class="metric-label">البوتات الشغالة</div><div class="metric" id="runningCount">—</div></div>
 <div class="card"><div class="metric-label">حالة الجلسة</div><div class="metric" style="color:#86efc2">مؤمّنة</div></div>
 </div>
+<section class="section"><div class="section-head"><h2>إضافة بوت جديد</h2></div>
+<div class="card">
+<p class="muted">ارفع ملف ZIP يحتوي على ملف <b>index.js</b> في المجلد الرئيسي. الحد الأقصى للرفع 12MB، وبعد فك الضغط 30MB.</p>
+<form id="uploadForm">
+<div class="upload-grid">
+<div><label for="botId">اسم البوت (إنجليزي)</label><input id="botId" name="botId" required maxlength="40" pattern="[A-Za-z0-9_-]{1,40}" placeholder="my-discord-bot"></div>
+<div><label for="archive">ملف البوت ZIP</label><input id="archive" name="archive" type="file" accept=".zip,application/zip" required></div>
+</div>
+<div style="margin-top:16px"><button id="uploadButton" type="submit">رفع وإضافة البوت</button></div>
+<div id="uploadMessage" class="error" role="status"></div>
+</form>
+</div></section>
 <section class="section"><div class="section-head"><h2>قائمة البوتات</h2><button class="secondary" id="refresh">تحديث</button></div><div class="card" id="bots"><p class="muted">جاري تحميل البوتات...</p></div></section>
-<div class="notice">هذه القائمة تعرض البوتات الموجودة على خادم المنصة فقط. بوت NEXO الموجود على Wispbyte لن يظهر هنا إلا بعد ربط Wispbyte بشكل مستقل. أزرار التحكم ومدير الملفات ما زالت قيد التطوير.</div>
+<div class="notice">تنبيه أمني: ارفع ملفات تثق فيها فقط. المنصة تحفظ ملفات البوت ولا تثبّت مكتبات package.json ولا تشغّل البوت تلقائياً بعد الرفع حتى نضيف مرحلة تثبيت آمنة. بوت NEXO الموجود على Wispbyte مستقل ولن يظهر هنا حالياً.</div>
 </section>
 </main><footer>© 2026 NEXO CLOUD PRIVATE</footer>
 <script>
 const $ = (id) => document.getElementById(id);
 async function api(url, options={}) {
-  const response = await fetch(url, { credentials:"same-origin", ...options, headers:{"Content-Type":"application/json", ...(options.headers||{})} });
+  const response = await fetch(url, { credentials:"same-origin", ...options, headers:{...(options.headers||{})} });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "حدث خطأ في الاتصال");
   return data;
@@ -67,9 +79,20 @@ async function loadBots() {
 }
 $("loginForm").addEventListener("submit", async (event) => {
   event.preventDefault(); $("loginError").textContent=""; $("loginButton").disabled=true;
-  try { await api("/cloud/api/login",{method:"POST",body:JSON.stringify({password:$("password").value})}); $("password").value=""; showDashboard(); await loadBots(); }
+  try { await api("/cloud/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("password").value})}); $("password").value=""; showDashboard(); await loadBots(); }
   catch(error) { $("loginError").textContent=error.message; }
   finally { $("loginButton").disabled=false; }
+});
+$("uploadForm").addEventListener("submit", async (event) => {
+  event.preventDefault(); $("uploadMessage").className="error"; $("uploadMessage").textContent="جاري رفع الملفات..."; $("uploadButton").disabled=true;
+  const form=new FormData(); form.append("botId",$("botId").value.trim()); form.append("archive",$("archive").files[0]);
+  try {
+    const result=await api("/cloud/api/upload",{method:"POST",body:form});
+    $("uploadMessage").className="success";
+    $("uploadMessage").textContent=result.message+" — الملفات محفوظة. تثبيت المكتبات والتشغيل لم يُفعّلا بعد.";
+    $("uploadForm").reset(); await loadBots();
+  } catch(error) { $("uploadMessage").className="error"; $("uploadMessage").textContent=error.message; }
+  finally { $("uploadButton").disabled=false; }
 });
 $("logout").addEventListener("click", async () => { try { await api("/cloud/api/logout",{method:"POST"}); } catch (_) {} showLogin(); });
 $("refresh").addEventListener("click", async () => { try { await loadBots(); } catch(error) { showLogin(); $("loginError").textContent=error.message; } });

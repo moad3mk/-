@@ -32,6 +32,19 @@ RestrictRealtime=yes
 LockPersonality=yes
 RestrictSUIDSGID=yes
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Block private, loopback, link-local and metadata destinations for this service
+# and all bot processes below it. Keep the local DNS stub reachable.
+IPAddressDeny=10.0.0.0/8
+IPAddressDeny=172.16.0.0/12
+IPAddressDeny=192.168.0.0/16
+IPAddressDeny=127.0.0.0/8
+IPAddressDeny=169.254.0.0/16
+IPAddressDeny=100.64.0.0/10
+IPAddressDeny=::1/128
+IPAddressDeny=fc00::/7
+IPAddressDeny=fe80::/10
+IPAddressAllow=127.0.0.53/32
+IPAddressAllow=127.0.0.11/32
 CapabilityBoundingSet=
 AmbientCapabilities=
 ReadWritePaths=/opt/nexo/bots

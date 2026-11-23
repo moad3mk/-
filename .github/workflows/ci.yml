@@ -33,7 +33,9 @@ jobs:
         env:
           HOST_PASSWORD: ci-test-password
           PORT: 3137
+          NEXO_BOTS_DIR: /tmp/nexo-ci-bots
         run: |
+          mkdir -p /tmp/nexo-ci-bots
           node server.js > /tmp/nexo-ci.log 2>&1 &
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT

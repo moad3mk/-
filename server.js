@@ -210,7 +210,7 @@ app.post("/cloud/api/bots/:id/stop", cloudAuth, (req, res) => {
   const child = processes.get(id);
   if (!child) return res.status(404).json({ error: "البوت متوقف بالفعل" });
   try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
-  child.kill("SIGTERM");
+  stopBotProcess(child).then((stopped) => { if (!stopped) addLog(id, "تعذر تأكيد إيقاف جميع عمليات البوت"); });
   res.json({ ok: true, message: "تم إرسال أمر الإيقاف" });
 });
 
@@ -229,13 +229,7 @@ app.post("/cloud/api/bots/:id/restart", cloudAuth, async (req, res) => {
     } catch (_) { return res.status(500).json({ error: "تعذر تشغيل البوت" }); }
   }
   try { fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 }); } catch (_) {}
-  const exited = new Promise((resolve) => child.once("exit", resolve));
-  child.kill("SIGTERM");
-  const graceful = await Promise.race([exited.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 5000))]);
-  if (!graceful && processes.get(id) === child) {
-    child.kill("SIGKILL");
-    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 1500))]);
-  }
+  await stopBotProcess(child, 5000);
   if (processes.has(id)) return res.status(500).json({ error: "تعذر إيقاف النسخة القديمة" });
   if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت بعد إعادة التشغيل" });
   res.json({ ok: true, message: "تمت إعادة تشغيل البوت" });
@@ -442,6 +436,23 @@ app.post("/cloud/api/upload", cloudAuth, uploadLimiter, upload.single("archive")
   }
 });
 
+function stopBotProcess(child, graceMs = 5000) {
+  return new Promise((resolve) => {
+    if (!child || child.exitCode !== null || child.signalCode !== null) return resolve(true);
+    let settled = false;
+    let timer;
+    const finish = (value) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); child.removeListener("exit", onExit); resolve(value); };
+    const onExit = () => finish(true);
+    child.once("exit", onExit);
+    const signal = (name) => {
+      try { if (process.platform !== "win32" && child.pid) process.kill(-child.pid, name); else child.kill(name); }
+      catch (error) { if (error.code !== "ESRCH") { try { child.kill(name); } catch (_) {} } }
+    };
+    signal("SIGTERM");
+    timer = setTimeout(() => { signal("SIGKILL"); setTimeout(() => finish(child.exitCode !== null || child.signalCode !== null), 1500).unref(); }, graceMs);
+    timer.unref();
+  });
+}
 function startBot(id) {
   if (!validId(id) || processes.has(id) || processes.size >= MAX_RUNNING_BOTS) return false;
   const folder = path.join(BOTS_DIR, id);
@@ -452,7 +463,7 @@ function startBot(id) {
     if (process.env[key]) baseEnv[key] = process.env[key];
   }
   baseEnv.NODE_ENV = "production";
-  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: process.platform !== "win32" });
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));

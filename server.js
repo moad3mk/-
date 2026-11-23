@@ -59,14 +59,12 @@ app.get("/api/logs/:id", auth, (req, res) => {
   res.json({ logs: logs.get(req.params.id) || [] });
 });
 
-app.post("/api/start/:id", auth, (req, res) => {
-  const id = req.params.id;
-  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
-  if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
+function startBot(id) {
+  if (!validId(id) || processes.has(id)) return false;
 
   const folder = path.join(BOTS_DIR, id);
   const entry = path.join(folder, "index.js");
-  if (!fs.existsSync(entry)) return res.status(404).json({ error: "لم أجد bots/" + id + "/index.js" });
+  if (!fs.existsSync(entry)) return false;
 
   const child = spawn(process.execPath, [entry], {
     cwd: folder,
@@ -83,7 +81,18 @@ app.post("/api/start/:id", auth, (req, res) => {
     addLog(id, "توقف البوت (code=" + code + ", signal=" + signal + ")");
     if (processes.get(id) === child) processes.delete(id);
   });
+  return true;
+}
 
+app.post("/api/start/:id", auth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  if (processes.has(id)) return res.status(409).json({ error: "البوت شغال بالفعل" });
+
+  const entry = path.join(BOTS_DIR, id, "index.js");
+  if (!fs.existsSync(entry)) return res.status(404).json({ error: "لم أجد bots/" + id + "/index.js" });
+
+  startBot(id);
   res.json({ ok: true, message: "بدأ تشغيل " + id });
 });
 
@@ -98,4 +107,13 @@ app.post("/api/stop/:id", auth, (req, res) => {
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log("NEXO PRIVATE HOST listening on port " + PORT);
+
+  // Start every bot automatically whenever the host process starts.
+  for (const entry of fs.readdirSync(BOTS_DIR, { withFileTypes: true })) {
+    if (entry.isDirectory() && validId(entry.name)) {
+      if (startBot(entry.name)) {
+        console.log("Auto-started bot: " + entry.name);
+      }
+    }
+  }
 });

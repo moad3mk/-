@@ -128,7 +128,7 @@ function getBots() {
     .filter((entry) => entry.isDirectory() && validId(entry.name))
     .map((entry) => {
       const id = entry.name;
-      return { id, running: processes.has(id), entry: fs.existsSync(path.join(BOTS_DIR, id, "index.js")) };
+      return { id, running: processes.has(id), entry: fs.existsSync(path.join(BOTS_DIR, id, "index.js")), hasPackage: fs.existsSync(path.join(BOTS_DIR, id, "package.json")) };
     });
 }
 

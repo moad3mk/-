@@ -199,7 +199,7 @@ app.post("/cloud/api/bots/:id/start", cloudAuth, (req, res) => {
   if (processes.size >= MAX_RUNNING_BOTS) return res.status(429).json({ error: "وصلت للحد الأقصى للبوتات الشغالة (" + MAX_RUNNING_BOTS + ")" });
   try {
     fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 });
-    if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت" });
+    if (!startBot(id)) { fs.rmSync(path.join(folder, ".nexo-enabled"), { force: true }); return res.status(500).json({ error: "تعذر تشغيل البوت: العزل أو حدود الموارد غير متاحة" }); }
     res.json({ ok: true, message: "تم إرسال أمر التشغيل" });
   } catch (error) { res.status(500).json({ error: "فشل التشغيل: " + error.message }); }
 });
@@ -224,7 +224,7 @@ app.post("/cloud/api/bots/:id/restart", cloudAuth, async (req, res) => {
   if (!child) {
     try {
       fs.writeFileSync(path.join(folder, ".nexo-enabled"), "1", { mode: 0o600 });
-      if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت" });
+      if (!startBot(id)) { fs.rmSync(path.join(folder, ".nexo-enabled"), { force: true }); return res.status(500).json({ error: "تعذر تشغيل البوت: العزل أو حدود الموارد غير متاحة" }); }
       return res.json({ ok: true, message: "تم تشغيل البوت" });
     } catch (_) { return res.status(500).json({ error: "تعذر تشغيل البوت" }); }
   }
@@ -291,8 +291,7 @@ app.post("/cloud/api/bots/:id/install", cloudAuth, (req, res) => {
   child.stderr.on("data", capture);
   const timeout = setTimeout(() => {
     addLog(id, "تجاوز التثبيت 3 دقائق؛ سيتم إيقافه");
-    child.kill("SIGTERM");
-    setTimeout(() => { if (installs.get(id) === child) child.kill("SIGKILL"); }, 4000).unref();
+    stopBotProcess(child, 4000).catch(() => {});
   }, 180000);
   timeout.unref();
   child.on("error", (error) => addLog(id, "فشل تشغيل npm: " + error.message));
@@ -498,6 +497,8 @@ function prepareBotCgroup(id) {
   fs.writeFileSync(path.join(cgroup, "pids.max"), String(BOT_PIDS_MAX));
   const swap = path.join(cgroup, "memory.swap.max");
   if (fs.existsSync(swap)) fs.writeFileSync(swap, "0");
+  const oomGroup = path.join(cgroup, "memory.oom.group");
+  if (fs.existsSync(oomGroup)) fs.writeFileSync(oomGroup, "1");
   return cgroup;
 }
 
@@ -528,7 +529,7 @@ function sandboxCommand(id) {
     "--dir", "/etc/pki",
     "--dir", "/etc/pki/tls",
     "--proc", "/proc", "--dev", "/dev",
-    "--tmpfs", "/tmp",
+    "--size", "134217728", "--tmpfs", "/tmp",
     "--bind", folder, "/workspace",
     "--chdir", "/workspace",
     "--clearenv",

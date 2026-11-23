@@ -1,0 +1,72 @@
+name: NEXO Cloud checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  syntax-and-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Check JavaScript syntax
+        run: |
+          node --check server.js
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const vm = require('node:vm');
+          const html = fs.readFileSync('cloud/index.html', 'utf8');
+          const scripts = [...html.matchAll(/<script\\b[^>]*>([\\s\\S]*?)<\\/script>/gi)];
+          if (!scripts.length) throw new Error('No inline dashboard script found');
+          for (const script of scripts) new vm.Script(script[1]);
+          JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          console.log('Dashboard scripts and package.json syntax OK');
+          NODE
+      - name: Smoke-test authentication and dashboard API
+        env:
+          HOST_PASSWORD: ci-test-password
+          PORT: 3137
+        run: |
+          node server.js > /tmp/nexo-ci.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
+          node - <<'NODE'
+          const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+          (async () => {
+            let ready = false;
+            for (let i = 0; i < 30; i++) {
+              try {
+                const r = await fetch('http://127.0.0.1:3137/cloud/api/me');
+                if (r.status === 401) { ready = true; break; }
+              } catch {}
+              await sleep(500);
+            }
+            if (!ready) throw new Error('Server did not become ready');
+            const base = 'http://127.0.0.1:3137';
+            const denied = await fetch(base + '/cloud/api/bots');
+            if (denied.status !== 401) throw new Error('Unauthenticated API access was not rejected');
+            const login = await fetch(base + '/cloud/api/login', {
+              method: 'POST', headers: {'content-type':'application/json'},
+              body: JSON.stringify({password:'ci-test-password'})
+            });
+            if (!login.ok) throw new Error('Login failed: ' + login.status);
+            const cookie = login.headers.get('set-cookie')?.split(';')[0];
+            if (!cookie) throw new Error('Session cookie missing');
+            const me = await fetch(base + '/cloud/api/me', {headers:{cookie}});
+            if (!me.ok) throw new Error('Authenticated session check failed');
+            const bots = await fetch(base + '/cloud/api/bots', {headers:{cookie}});
+            if (!bots.ok || !Array.isArray((await bots.json()).bots)) throw new Error('Bots API smoke test failed');
+            const logout = await fetch(base + '/cloud/api/logout', {method:'POST',headers:{cookie}});
+            if (!logout.ok) throw new Error('Logout failed');
+            const expired = await fetch(base + '/cloud/api/me', {headers:{cookie}});
+            if (expired.status !== 401) throw new Error('Logout did not invalidate session');
+            console.log('Authentication, session, bot-list and logout smoke tests passed');
+          })().catch(error => { console.error(error); process.exit(1); });
+          NODE

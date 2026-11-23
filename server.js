@@ -260,10 +260,23 @@ app.post("/cloud/api/bots/:id/install", cloudAuth, (req, res) => {
       return res.status(400).json({ error: "اسم أو إصدار مكتبة غير مسموح: " + name });
     }
   }
-  const child = spawn("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-progress", "--package-lock=false", "--registry=https://registry.npmjs.org"], {
+  let sandbox;
+  try { sandbox = sandboxCommand(id); }
+  catch (error) { return res.status(503).json({ error: "تعذر تجهيز بيئة عزل التثبيت: " + error.message }); }
+  const npmPath = (process.env.PATH || "").split(path.delimiter)
+    .map((dir) => path.join(dir, "npm"))
+    .find((candidate) => fs.existsSync(candidate));
+  if (!npmPath) return res.status(503).json({ error: "لم يتم العثور على npm داخل الخادم" });
+  const installArgs = [
+    "--", npmPath, "install", "--omit=dev", "--ignore-scripts",
+    "--no-audit", "--no-fund", "--no-progress", "--package-lock=false",
+    "--registry=https://registry.npmjs.org"
+  ];
+  const child = spawn(sandbox.command, sandbox.args.concat(installArgs), {
     cwd: folder,
-    env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", CI: "1", npm_config_update_notifier: "false" },
-    stdio: ["ignore", "pipe", "pipe"]
+    env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin", HOME: "/tmp" },
+    stdio: ["ignore", "pipe", "pipe"],
+    detached: true
   });
   installs.set(id, child);
   addLog(id, "بدأ تثبيت " + entries.length + " مكتبة (مع تعطيل install scripts)");
@@ -317,7 +330,7 @@ app.put("/cloud/api/bots/:id/env", cloudAuth, (req, res) => {
   if (Buffer.byteLength(JSON.stringify(variables), "utf8") > 32 * 1024) return res.status(400).json({ error: "حجم متغيرات البيئة تجاوز 32KB" });
   const clean = {};
   for (const [key, value] of entries) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || /^(PATH|HOME|NODE_OPTIONS|NODE_PATH|HOST_PASSWORD|PORT|PWD|SHELL|TMPDIR|TEMP|TMP|SYSTEMROOT|COMSPEC|PATHEXT|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|BASH_ENV|ENV|IFS|PYTHONPATH|PERL5OPT|RUBYOPT|JAVA_TOOL_OPTIONS)$/i.test(key) || /^(LD_|DYLD_|NPM_CONFIG_|npm_config_|GIT_CONFIG_)/i.test(key)) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || /^(PATH|HOME|NODE_OPTIONS|NODE_PATH|HOST_PASSWORD|PORT|PWD|SHELL|NODE_ENV|TMPDIR|TEMP|TMP|SYSTEMROOT|COMSPEC|PATHEXT|LD_PRELOAD|LD_LIBRARY_PATH|DYLD_INSERT_LIBRARIES|BASH_ENV|ENV|IFS|PYTHONPATH|PERL5OPT|RUBYOPT|JAVA_TOOL_OPTIONS)$/i.test(key) || /^(LD_|DYLD_|NPM_CONFIG_|npm_config_|GIT_CONFIG_)/i.test(key)) {
       return res.status(400).json({ error: "اسم متغير غير مسموح: " + key });
     }
     if (typeof value !== "string" || value.length > 4000 || value.includes(String.fromCharCode(0))) return res.status(400).json({ error: "قيمة متغير غير صالحة: " + key });
@@ -456,7 +469,7 @@ function stopBotProcess(child, graceMs = 5000) {
 function sandboxCommand(id) {
   if (process.platform !== "linux") throw new Error("العزل الآمن متاح حالياً على Linux فقط");
   const bwrap = ["/usr/bin/bwrap", "/bin/bwrap"].find((candidate) => fs.existsSync(candidate));
-  if (!bwrap) throw new Error("أداة العزل bubblewrap غير مثبتة؛ تم رفض تشغيل البوت بدون عزل");
+  if (!bwrap) throw new Error("أداة العزل bubblewrap غير مثبتة؛ تم رفض التنفيذ بدون عزل");
   const folder = path.join(BOTS_DIR, id);
   const args = [
     "--die-with-parent", "--new-session", "--unshare-all", "--share-net",
@@ -467,12 +480,16 @@ function sandboxCommand(id) {
     "--tmpfs", "/tmp",
     "--bind", folder, "/workspace",
     "--chdir", "/workspace",
-    "--setenv", "PATH", "/usr/local/bin:/usr/bin:/bin",
+    "--clearenv",
+    "--setenv", "PATH", "/usr/local/bin:/usr/bin",
     "--setenv", "HOME", "/tmp",
     "--setenv", "NODE_ENV", "production"
   ];
-  for (const [key, value] of Object.entries(readBotEnv(id))) args.push("--setenv", key, value);
-  args.push("--", process.execPath, "/workspace/index.js");
+  if (fs.existsSync("/lib64")) args.push("--ro-bind", "/lib64", "/lib64");
+  for (const [key, value] of Object.entries(readBotEnv(id))) {
+    if (key === "NODE_ENV") continue;
+    args.push("--setenv", key, value);
+  }
   return { command: bwrap, args };
 }
 
@@ -484,7 +501,7 @@ function startBot(id) {
   let sandbox;
   try { sandbox = sandboxCommand(id); }
   catch (error) { addLog(id, "رفض التشغيل: " + error.message); return false; }
-  const child = spawn(sandbox.command, sandbox.args, { cwd: folder, env: { PATH: process.env.PATH || "/usr/bin:/bin", HOME: "/tmp" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: true });
+  const child = spawn(sandbox.command, sandbox.args.concat(["--", process.execPath, "/workspace/index.js"]), { cwd: folder, env: { PATH: process.env.PATH || "/usr/local/bin:/usr/bin", HOME: "/tmp" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true, detached: true });
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));

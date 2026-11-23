@@ -70,7 +70,7 @@ client.on("messageCreate",async m=>{
  if(cmd==="خروج"){const v=getVoiceConnection(m.guild.id);if(!v)return m.reply("مش داخل في روم صوتي.");v.destroy();return m.reply("طلعت من الروم الصوتي.");}
  const admin=["تف","ق","ف","م","اسكت","لوقات","اختصار"];
  if(cmd==="سماح"){if(!high(m.member,m.guild))return m.reply("أمر السماح للرتب العليا فقط.");return m.reply("باش تطلعلك لوحة السماح الخاصة بيك داخل الروم، استخدم أمر السلاش /allow.");}
- if(cmd==="خط"){if(c!=="خط")return;if(!canCommand(m.member,m.guild,"خط"))return m.reply("ما عندكش سماح لاستخدام أمر خط.");return m.channel.send({content:"https://files.catbox.moe/zsaac6.gif"}).catch(()=>m.reply("ما قدرتش نرسل الـGIF."));}
+ if(cmd==="خط"){if(c!=="خط")return;if(!canCommand(m.member,m.guild,"خط"))return m.reply("ما عندكش سماح لاستخدام أمر خط.");try{const response=await fetch("https://files.catbox.moe/zsaac6.gif");if(!response.ok)throw new Error("GIF source HTTP "+response.status);const type=response.headers.get("content-type")||"";if(!type.startsWith("image/"))throw new Error("GIF source did not return an image");const gif=Buffer.from(await response.arrayBuffer());if(!gif.length)throw new Error("GIF file is empty");return m.channel.send({files:[{attachment:gif,name:"nexo-line.gif"}]});}catch(error){console.error("خط GIF error:",error.message);return m.reply("تعذر تحميل الـGIF حالياً. جرّب بعد شوية.");}}
  if(!admin.includes(cmd)&&!c.startsWith("فك تايم")&&!c.startsWith("فك باند"))return;
  if(!canCommand(m.member,m.guild,({"تف":"ban","ق":"lock","ف":"unlock","م":"clear","اسكت":"timeout","لوقات":"logs","اختصار":"shortcut_add"}[cmd]|| (c.startsWith("فك تايم")?"untimeout":c.startsWith("فك باند")?"unban":cmd))))return m.reply("ما عندكش سماح لاستخدام الأمر هذا.");
  

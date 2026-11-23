@@ -9,6 +9,7 @@ const PORT = Number(process.env.PORT || 3000);
 const HOST_PASSWORD = process.env.HOST_PASSWORD;
 const ROOT = __dirname;
 const BOTS_DIR = path.join(ROOT, "bots");
+const CLOUD_DIR = path.join(ROOT, "cloud");
 const processes = new Map();
 const logs = new Map();
 
@@ -20,6 +21,7 @@ if (!HOST_PASSWORD) {
 fs.mkdirSync(BOTS_DIR, { recursive: true });
 app.use(helmet({ contentSecurityPolicy: false }));
 app.use(express.json({ limit: "32kb" }));
+app.use("/cloud", express.static(CLOUD_DIR));
 app.use(express.static(path.join(ROOT, "public")));
 
 function auth(req, res, next) {

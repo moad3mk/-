@@ -79,11 +79,13 @@ async function loadBots() {
     const actions=document.createElement("div"); actions.className="bot-actions";
     const toggle=document.createElement("button"); toggle.textContent=bot.running?"إيقاف":"تشغيل"; toggle.className=bot.running?"secondary":"";
     toggle.addEventListener("click",async()=>{toggle.disabled=true;try{await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/"+(bot.running?"stop":"start"),{method:"POST"});await loadBots();}catch(error){alert(error.message);}finally{toggle.disabled=false;}});
+    const restartButton=document.createElement("button"); restartButton.textContent="إعادة تشغيل"; restartButton.className="secondary";
+    restartButton.addEventListener("click",async()=>{restartButton.disabled=true;try{await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/restart",{method:"POST"});await loadBots();}catch(error){alert(error.message);}finally{restartButton.disabled=false;}});
     const logButton=document.createElement("button"); logButton.textContent="السجلات"; logButton.className="secondary";
     logButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/logs");$("logTitle").textContent="سجلات البوت: "+bot.id;$("logOutput").textContent=(result.logs||[]).map(item=>"["+item.time+"] "+item.line).join("\n")||"لا توجد سجلات حتى الآن."; }catch(error){alert(error.message);}});
     const envButton=document.createElement("button"); envButton.textContent="البيئة"; envButton.className="secondary";
     envButton.addEventListener("click",async()=>{try{const result=await api("/cloud/api/bots/"+encodeURIComponent(bot.id)+"/env");$("envBot").value=bot.id;$("envEditor").value=JSON.stringify(result.variables||{},null,2);$("envMessage").textContent="تم تحميل متغيرات "+bot.id+"."; }catch(error){alert(error.message);}});
-    actions.append(toggle,logButton,envButton); row.append(name,state,actions); $("bots").append(row);
+    actions.append(toggle,restartButton,logButton,envButton); row.append(name,state,actions); $("bots").append(row);
   }
 }
 $("loginForm").addEventListener("submit", async (event) => {

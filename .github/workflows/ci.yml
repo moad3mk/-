@@ -34,6 +34,7 @@ jobs:
           HOST_PASSWORD: ci-test-password
           PORT: 3137
           NEXO_BOTS_DIR: /tmp/nexo-ci-bots
+          NEXO_CGROUP_ROOT: /tmp/nexo-ci-cgroups
         run: |
           mkdir -p /tmp/nexo-ci-bots
           node server.js > /tmp/nexo-ci.log 2>&1 &
@@ -71,10 +72,20 @@ jobs:
             if (!stillAuthenticated.ok) throw new Error('Rejected cross-origin request changed the session');
             const bots = await fetch(base + '/cloud/api/bots', {headers:{cookie}});
             if (!bots.ok || !Array.isArray((await bots.json()).bots)) throw new Error('Bots API smoke test failed');
+            const fs = require('node:fs');
+            fs.mkdirSync('/tmp/nexo-ci-bots/sandbox-test', {recursive:true});
+            fs.writeFileSync('/tmp/nexo-ci-bots/sandbox-test/index.js', 'console.log("must not run without cgroups");');
+            const startWithoutCgroups = await fetch(base + '/cloud/api/bots/sandbox-test/start', {
+              method:'POST', headers:{cookie}
+            });
+            if (startWithoutCgroups.ok) throw new Error('Bot was allowed to start without delegated cgroup v2 limits');
+            const afterRejectedStart = await fetch(base + '/cloud/api/bots', {headers:{cookie}});
+            const listed = (await afterRejectedStart.json()).bots.find(bot => bot.id === 'sandbox-test');
+            if (!listed || listed.running) throw new Error('Fail-closed sandbox test failed');
             const logout = await fetch(base + '/cloud/api/logout', {method:'POST',headers:{cookie}});
             if (!logout.ok) throw new Error('Logout failed');
             const expired = await fetch(base + '/cloud/api/me', {headers:{cookie}});
             if (expired.status !== 401) throw new Error('Logout did not invalidate session');
-            console.log('Authentication, session, bot-list and logout smoke tests passed');
+            console.log('Authentication, session, bot-list, fail-closed sandbox and logout smoke tests passed');
           })().catch(error => { console.error(error); process.exit(1); });
           NODE

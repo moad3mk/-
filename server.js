@@ -138,7 +138,6 @@ app.post("/cloud/api/bots/:id/stop", cloudAuth, (req, res) => {
   const child = processes.get(id);
   if (!child) return res.status(404).json({ error: "البوت متوقف بالفعل" });
   try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
-  try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
   child.kill("SIGTERM");
   res.json({ ok: true, message: "تم إرسال أمر الإيقاف" });
 });
@@ -147,6 +146,41 @@ app.get("/cloud/api/bots/:id/logs", cloudAuth, (req, res) => {
   const id = req.params.id;
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
   res.json({ logs: logs.get(id) || [] });
+});
+
+function botEnvPath(id) { return path.join(BOTS_DIR, id, ".nexo-env.json"); }
+function readBotEnv(id) {
+  try {
+    const value = JSON.parse(fs.readFileSync(botEnvPath(id), "utf8"));
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch (_) { return {}; }
+}
+app.get("/cloud/api/bots/:id/env", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id) || !fs.existsSync(path.join(BOTS_DIR, id))) return res.status(404).json({ error: "البوت غير موجود" });
+  res.json({ variables: readBotEnv(id) });
+});
+app.put("/cloud/api/bots/:id/env", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id) || !fs.existsSync(path.join(BOTS_DIR, id))) return res.status(404).json({ error: "البوت غير موجود" });
+  const variables = req.body && req.body.variables;
+  if (!variables || typeof variables !== "object" || Array.isArray(variables)) return res.status(400).json({ error: "صيغة المتغيرات غير صحيحة" });
+  const entries = Object.entries(variables);
+  if (entries.length > 100) return res.status(400).json({ error: "الحد الأقصى 100 متغير" });
+  const clean = {};
+  for (const [key, value] of entries) {
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(key) || /^(PATH|HOME|NODE_OPTIONS|HOST_PASSWORD|PORT|PWD|SHELL|LD_PRELOAD)$/i.test(key)) {
+      return res.status(400).json({ error: "اسم متغير غير مسموح: " + key });
+    }
+    if (typeof value !== "string" || value.length > 8000) return res.status(400).json({ error: "قيمة متغير غير صالحة: " + key });
+    clean[key] = value;
+  }
+  try {
+    fs.writeFileSync(botEnvPath(id), JSON.stringify(clean, null, 2), { mode: 0o600 });
+    fs.chmodSync(botEnvPath(id), 0o600);
+    addLog(id, "تم تحديث متغيرات البيئة الخاصة بالبوت");
+    res.json({ ok: true, count: entries.length });
+  } catch (error) { res.status(500).json({ error: "تعذر حفظ المتغيرات" }); }
 });
 app.get("/api/status", auth, (_req, res) => res.json({ name: "NEXO PRIVATE HOST", bots: getBots() }));
 
@@ -245,7 +279,12 @@ function startBot(id) {
   const folder = path.join(BOTS_DIR, id);
   const entry = path.join(folder, "index.js");
   if (!fs.existsSync(entry)) return false;
-  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...process.env }, stdio: ["ignore", "pipe", "pipe"] });
+  const baseEnv = {};
+  for (const key of ["PATH", "HOME", "TMPDIR", "TEMP", "TMP", "LANG", "LC_ALL", "SYSTEMROOT"]) {
+    if (process.env[key]) baseEnv[key] = process.env[key];
+  }
+  baseEnv.NODE_ENV = "production";
+  const child = spawn(process.execPath, [entry], { cwd: folder, env: { ...baseEnv, ...readBotEnv(id) }, stdio: ["ignore", "pipe", "pipe"] });
   processes.set(id, child);
   addLog(id, "بدأ تشغيل البوت");
   child.stdout.on("data", (data) => addLog(id, data.toString()));
@@ -273,6 +312,7 @@ app.post("/api/stop/:id", auth, (req, res) => {
   if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
   const child = processes.get(id);
   if (!child) return res.status(404).json({ error: "البوت مش شغال" });
+  try { fs.rmSync(path.join(BOTS_DIR, id, ".nexo-enabled"), { force: true }); } catch (_) {}
   child.kill("SIGTERM");
   res.json({ ok: true, message: "تم إرسال أمر الإيقاف" });
 });

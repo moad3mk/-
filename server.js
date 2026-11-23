@@ -15,6 +15,7 @@ const ROOT = __dirname;
 const BOTS_DIR = process.env.NEXO_BOTS_DIR ? path.resolve(process.env.NEXO_BOTS_DIR) : path.join(ROOT, "bots");
 const CLOUD_DIR = path.join(ROOT, "cloud");
 const processes = new Map();
+const installs = new Map();
 const logs = new Map();
 const cloudSessions = new Map();
 const loginAttempts = new Map();
@@ -180,6 +181,59 @@ app.post("/cloud/api/bots/:id/restart", cloudAuth, async (req, res) => {
   if (processes.has(id)) return res.status(500).json({ error: "تعذر إيقاف النسخة القديمة" });
   if (!startBot(id)) return res.status(500).json({ error: "تعذر تشغيل البوت بعد إعادة التشغيل" });
   res.json({ ok: true, message: "تمت إعادة تشغيل البوت" });
+});
+
+app.post("/cloud/api/bots/:id/install", cloudAuth, (req, res) => {
+  const id = req.params.id;
+  if (!validId(id)) return res.status(400).json({ error: "معرّف غير صالح" });
+  const folder = path.join(BOTS_DIR, id);
+  const packagePath = path.join(folder, "package.json");
+  if (!fs.existsSync(packagePath)) return res.status(404).json({ error: "ملف package.json غير موجود لهذا البوت" });
+  if (processes.has(id)) return res.status(409).json({ error: "أوقف البوت قبل تثبيت المكتبات" });
+  if (installs.has(id)) return res.status(409).json({ error: "تثبيت المكتبات جارٍ بالفعل" });
+  let manifest;
+  try { manifest = JSON.parse(fs.readFileSync(packagePath, "utf8")); }
+  catch (_) { return res.status(400).json({ error: "ملف package.json غير صالح" }); }
+  const deps = manifest && manifest.dependencies;
+  if (!deps || typeof deps !== "object" || Array.isArray(deps)) {
+    return res.status(400).json({ error: "لا توجد dependencies في package.json" });
+  }
+  const entries = Object.entries(deps);
+  if (!entries.length || entries.length > 40) return res.status(400).json({ error: "عدد المكتبات يجب أن يكون بين 1 و40" });
+  for (const [name, version] of entries) {
+    if (!/^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/i.test(name) ||
+        typeof version !== "string" || version.length > 80 ||
+        !/^[0-9v*^~<>=.|xX -]+$/.test(version)) {
+      return res.status(400).json({ error: "اسم أو إصدار مكتبة غير مسموح: " + name });
+    }
+  }
+  const child = spawn("npm", ["install", "--omit=dev", "--ignore-scripts", "--no-audit", "--no-fund", "--no-progress", "--package-lock=false", "--registry=https://registry.npmjs.org"], {
+    cwd: folder,
+    env: { PATH: process.env.PATH || "", HOME: process.env.HOME || "", CI: "1", npm_config_update_notifier: "false" },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  installs.set(id, child);
+  addLog(id, "بدأ تثبيت " + entries.length + " مكتبة (مع تعطيل install scripts)");
+  let outputBytes = 0;
+  const capture = (data) => {
+    outputBytes += data.length;
+    if (outputBytes <= 200000) addLog(id, data.toString());
+  };
+  child.stdout.on("data", capture);
+  child.stderr.on("data", capture);
+  const timeout = setTimeout(() => {
+    addLog(id, "تجاوز التثبيت 3 دقائق؛ سيتم إيقافه");
+    child.kill("SIGTERM");
+    setTimeout(() => { if (installs.get(id) === child) child.kill("SIGKILL"); }, 4000).unref();
+  }, 180000);
+  timeout.unref();
+  child.on("error", (error) => addLog(id, "فشل تشغيل npm: " + error.message));
+  child.on("exit", (code) => {
+    clearTimeout(timeout);
+    if (installs.get(id) === child) installs.delete(id);
+    addLog(id, code === 0 ? "اكتمل تثبيت مكتبات البوت" : "فشل تثبيت المكتبات (exit=" + code + ")");
+  });
+  res.json({ ok: true, message: "بدأ تثبيت مكتبات البوت. تابع السجلات لمعرفة النتيجة." });
 });
 
 app.get("/cloud/api/bots/:id/logs", cloudAuth, (req, res) => {

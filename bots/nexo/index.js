@@ -40,11 +40,24 @@ async function purgeMessages(channel,n,excludeId=null){
  const fetched=await channel.messages.fetch({limit:Math.min(100,n+(excludeId?1:0))});
  const targets=[...fetched.values()].filter(msg=>msg.id!==excludeId).slice(0,n);
  if(!targets.length)return {deleted:0,reason:"ما فيش رسائل في الروم للمسح."};
+ const cutoff=Date.now()-14*24*60*60*1000;
+ const recent=targets.filter(msg=>msg.createdTimestamp>cutoff);
+ const old=targets.filter(msg=>msg.createdTimestamp<=cutoff);
  let count=0;
- for(const msg of targets){
-  try{await msg.delete();count++;}catch{}
+ if(recent.length){
+  try{
+   const deleted=await channel.bulkDelete(recent,true);
+   count+=deleted.size;
+  }catch{
+   const results=await Promise.allSettled(recent.map(msg=>msg.delete()));
+   count+=results.filter(x=>x.status==="fulfilled").length;
+  }
  }
- return count?{deleted:count}:{deleted:0,reason:"تعذر حذف أي رسالة. تأكد أن البوت عنده صلاحية Manage Messages وأن الروم يسمح له بالحذف."};
+ if(old.length){
+  const results=await Promise.allSettled(old.map(msg=>msg.delete()));
+  count+=results.filter(x=>x.status==="fulfilled").length;
+ }
+ return count?{deleted:count}:{deleted:0,reason:"تعذر حذف الرسائل. تأكد أن البوت عنده صلاحية Manage Messages."};
 }
 function duration(s){const m=/^(\d+)(s|m|h|d)$/i.exec(s||"");if(!m)return null;const n=+m[1];if(!n||n>40320)return null;return n*({s:1000,m:60000,h:3600000,d:86400000})[m[2].toLowerCase()];}
 client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
@@ -81,7 +94,7 @@ client.on("interactionCreate",async i=>{
   if(name==="leave"){const v=getVoiceConnection(i.guild.id);if(!v)return i.reply({content:"مش داخل في روم صوتي.",ephemeral:true});v.destroy();return i.reply("طلعت من الروم الصوتي.");}
   if(name==="ban"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null);if(!t)return i.reply({content:"ما لقيتش العضو.",ephemeral:true});if(!t.bannable)return i.reply({content:"ما نقدرش نحظر العضو؛ راجع صلاحيات البوت وترتيب الرتب.",ephemeral:true});await t.ban({reason:i.options.getString("reason")||"بواسطة "+i.user.tag}).then(()=>i.reply("تم حظر "+t.user.tag+".")).catch(()=>i.reply({content:"فشل الحظر.",ephemeral:true}));return;}
   if(name==="lock"||name==="unlock"){const ch=i.options.getChannel("channel")||i.channel;return ch.permissionOverwrites.edit(i.guild.roles.everyone,{SendMessages:name==="lock"?false:null}).then(()=>i.reply(name==="lock"?"تم قفل الروم.":"تم فتح الروم.")).catch(()=>i.reply({content:"فشل تعديل صلاحيات الروم.",ephemeral:true}));}
-  if(name==="clear"){const n=i.options.getInteger("amount");const result=await purgeMessages(i.channel,n).catch(()=>({deleted:0,reason:"تعذر جلب الرسائل."}));if(!result.deleted)return i.reply({content:"ما تمش المسح: "+result.reason,ephemeral:true});return i.reply("تم مسح "+result.deleted+" رسالة.");}
+  if(name==="clear"){const n=i.options.getInteger("amount");await i.deferReply({ephemeral:true});const result=await purgeMessages(i.channel,n).catch(()=>({deleted:0,reason:"تعذر جلب الرسائل."}));if(!result.deleted)return i.editReply("ما تمش المسح: "+result.reason);return i.editReply("تم مسح "+result.deleted+" رسالة.");}
   if(name==="timeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null),ms=duration(i.options.getString("duration"));if(!t||!ms)return i.reply({content:"المدة غير صحيحة. استخدم 10m أو 2h أو 1d.",ephemeral:true});return t.timeout(ms,i.options.getString("reason")||"بواسطة "+i.user.tag).then(()=>i.reply("تم إسكات "+t.user.tag+".")).catch(()=>i.reply({content:"فشل الإسكات.",ephemeral:true}));}
   if(name==="untimeout"){const t=await i.guild.members.fetch(i.options.getUser("member").id).catch(()=>null);if(!t)return i.reply({content:"ما لقيتش العضو.",ephemeral:true});return t.timeout(null,"إزالة الإسكات بواسطة "+i.user.tag).then(()=>i.reply("تم فك الإسكات.")).catch(()=>i.reply({content:"فشل فك الإسكات.",ephemeral:true}));}
   if(name==="unban"){const id=i.options.getString("user_id");if(!/^\d{17,20}$/.test(id))return i.reply({content:"معرّف المستخدم غير صحيح.",ephemeral:true});return i.guild.members.unban(id).then(()=>i.reply("تم فك الحظر.")).catch(()=>i.reply({content:"ما قدرتش نفك الحظر؛ تأكد من المعرّف.",ephemeral:true}));}

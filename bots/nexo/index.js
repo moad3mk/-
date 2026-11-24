@@ -19,7 +19,7 @@ async function jailMember(guild,member,allowedIds=[]){
  for(const ch of channels.values()){
   if(!ch?.permissionOverwrites)continue;
   const ow=ch.permissionOverwrites.cache.get(member.id);
-  saved[ch.id]=ow?{allow:ow.allow.has("ViewChannel"),deny:ow.deny.has("ViewChannel")}:{allow:null,deny:null};
+  saved[ch.id]={allow:ow?.allow.has("ViewChannel")?true:ow?.deny.has("ViewChannel")?false:null};
  }
  settings.prisons[guild.id] ||= {};
  settings.prisons[guild.id][member.id]=saved; save();
@@ -34,7 +34,7 @@ async function releasePrison(guild,member){
  for(const [channelId,old] of Object.entries(saved)){
   const ch=await guild.channels.fetch(channelId).catch(()=>null);
   if(!ch?.permissionOverwrites)continue;
-  await ch.permissionOverwrites.edit(member.id,{ViewChannel:old.allow===null?null:old.allow, ...(old.deny===true?{ViewChannel:false}: {})},"Restore permissions after NEXO prison").catch(e=>console.error("Prison restore:",channelId,e.message));
+  await ch.permissionOverwrites.edit(member.id,{ViewChannel:old.allow},"Restore permissions after NEXO prison").catch(e=>console.error("Prison restore:",channelId,e.message));
  }
  delete settings.prisons[guild.id][member.id]; save(); return true;
 }

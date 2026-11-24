@@ -11,6 +11,33 @@ const dmSessions=new Map();
 try{settings=JSON.parse(fs.readFileSync(FILE,"utf8"));}catch{}
 settings.logs ||= {}; settings.shortcuts ||= {}; settings.permissions ||= {};
 function save(){fs.writeFileSync(FILE,JSON.stringify(settings,null,2));}
+
+settings.prisons ||= {}; settings.autoRoles ||= {};
+async function jailMember(guild,member,allowedIds=[]){
+ const channels=await guild.channels.fetch();
+ const saved={};
+ for(const ch of channels.values()){
+  if(!ch?.permissionOverwrites)continue;
+  const ow=ch.permissionOverwrites.cache.get(member.id);
+  saved[ch.id]=ow?{allow:ow.allow.has("ViewChannel"),deny:ow.deny.has("ViewChannel")}:{allow:null,deny:null};
+ }
+ settings.prisons[guild.id] ||= {};
+ settings.prisons[guild.id][member.id]=saved; save();
+ for(const ch of channels.values()){
+  if(!ch?.permissionOverwrites)continue;
+  await ch.permissionOverwrites.edit(member.id,{ViewChannel:allowedIds.includes(ch.id)?true:false},"NEXO prison").catch(e=>console.error("Prison overwrite:",ch.id,e.message));
+ }
+}
+async function releasePrison(guild,member){
+ const saved=settings.prisons?.[guild.id]?.[member.id];
+ if(!saved)return false;
+ for(const [channelId,old] of Object.entries(saved)){
+  const ch=await guild.channels.fetch(channelId).catch(()=>null);
+  if(!ch?.permissionOverwrites)continue;
+  await ch.permissionOverwrites.edit(member.id,{ViewChannel:old.allow===null?null:old.allow, ...(old.deny===true?{ViewChannel:false}: {})},"Restore permissions after NEXO prison").catch(e=>console.error("Prison restore:",channelId,e.message));
+ }
+ delete settings.prisons[guild.id][member.id]; save(); return true;
+}
 function high(member,guild,permissions){return !!member&&(member.id===guild?.ownerId||!!permissions?.has?.("Administrator")||!!permissions?.has?.("ManageGuild")||!!member.permissions?.has?.("Administrator")||!!member.permissions?.has?.("ManageGuild")||!!member.roles?.cache?.some(r=>ROLE_IDS.includes(r.id)));}
 function canCommand(member,guild,command,permissions){if(high(member,guild,permissions))return true;const p=settings.permissions?.[guild.id]?.[command];if(!p)return false;if(p.users?.includes(member.id))return true;return !!member.roles?.cache?.some(r=>p.roles?.includes(r.id));}
 const COMMAND_CHOICES=[["ban","حظر"],["lock","قفل"],["unlock","فتح"],["clear","مسح"],["timeout","إسكات"],["untimeout","فك الإسكات"],["unban","فك الحظر"],["logs","اللوقات"],["shortcut_add","إضافة اختصار"],["shortcut_remove","حذف اختصار"],["shortcut_list","قائمة الاختصارات"],["خط","خط"]];
@@ -30,7 +57,9 @@ const commands=[
  new SlashCommandBuilder().setName("shortcut_add").setDescription("إضافة رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)).addStringOption(o=>o.setName("reply").setDescription("الرد").setRequired(true)),
  new SlashCommandBuilder().setName("shortcut_remove").setDescription("حذف رد تلقائي").addStringOption(o=>o.setName("word").setDescription("الكلمة").setRequired(true)),
  new SlashCommandBuilder().setName("shortcut_list").setDescription("عرض الردود التلقائية"),
- new SlashCommandBuilder().setName("allow").setDescription("فتح لوحة السماح الخاصة")
+ new SlashCommandBuilder().setName("allow").setDescription("فتح لوحة السماح الخاصة"),
+ new SlashCommandBuilder().setName("prison_settings").setDescription("إعداد رومات السجن"),
+ new SlashCommandBuilder().setName("auto_role_settings").setDescription("إعداد الرتب التلقائية")
 ].map(x=>x.toJSON());
 const label=u=>u?u.tag+" ("+u.id+")":"عضو غير معروف";
 async function sendDmPanel(user,payload){try{await user.send(payload);return true;}catch{return false;}}
@@ -70,6 +99,15 @@ client.on("messageCreate",async m=>{
  if(cmd==="خروج"){const v=getVoiceConnection(m.guild.id);if(!v)return m.reply("مش داخل في روم صوتي.");v.destroy();return m.reply("طلعت من الروم الصوتي.");}
  const admin=["تف","ق","ف","م","اسكت","لوقات","اختصار"];
  if(cmd==="سماح"){if(!high(m.member,m.guild))return m.reply("أمر السماح للرتب العليا فقط.");return m.reply("باش تطلعلك لوحة السماح الخاصة بيك داخل الروم، استخدم أمر السلاش /allow.");}
+ if(cmd==="سجن"||cmd==="سراح"||c.startsWith("فك سجن")){
+  if(!high(m.member,m.guild))return m.reply("أوامر السجن للرتب العليا فقط.");
+  const target=m.mentions.members.first();if(!target)return m.reply("استعمال: سجن @العضو أو سراح @العضو");
+  if(target.id===m.guild.ownerId||target.id===m.client.user.id)return m.reply("ما نقدرش نطبق السجن على هذا العضو.");
+  if(cmd==="سجن"){try{await jailMember(m.guild,target,settings.prisonAllowed?.[m.guild.id]||[]);return m.reply("تم سجن "+target.user.tag+".");}catch(e){console.error(e);return m.reply("فشل السجن. تأكد من صلاحية Manage Channels وترتيب رتبة البوت.");}}
+  const ok=await releasePrison(m.guild,target);return m.reply(ok?"تم فك السجن عن "+target.user.tag+".":"العضو مش مسجون بواسطة البوت.");
+ }
+ if(cmd==="إعدادات"&&p[1]==="سجن")return m.reply("افتح /prison_settings لإعداد الرومات المسموح بها برسالة مخفية.");
+ if(cmd==="إعدادات"&&p[1]==="رتب"&&p[2]==="تلقائية")return m.reply("افتح /auto_role_settings لإعداد الرتب التلقائية برسالة مخفية.");
  if(cmd==="خط"){if(c!=="خط")return;if(!canCommand(m.member,m.guild,"خط"))return m.reply("ما عندكش سماح لاستخدام أمر خط.");try{const gifPath=path.join(__dirname,"NEXO_CITY_CFW_sequential.gif");const gif=fs.readFileSync(gifPath);if(gif.length<6||gif.toString("ascii",0,3)!=="GIF"||!["87a","89a"].includes(gif.toString("ascii",3,6)))throw new Error("Local file is not a valid GIF");const sent=await m.channel.send({files:[{attachment:gif,name:"NEXO_CITY_CFW_sequential.gif"}]});await m.delete().catch(()=>{});return sent;}catch(error){console.error("خط GIF error:",error.message);return m.reply("تعذر قراءة أو إرسال ملف الـGIF. تأكد أن NEXO_CITY_CFW_sequential.gif موجود بجانب ملفات البوت.");}}
  if(!admin.includes(cmd)&&!c.startsWith("فك تايم")&&!c.startsWith("فك باند"))return;
  if(!canCommand(m.member,m.guild,({"تف":"ban","ق":"lock","ف":"unlock","م":"clear","اسكت":"timeout","لوقات":"logs","اختصار":"shortcut_add"}[cmd]|| (c.startsWith("فك تايم")?"untimeout":c.startsWith("فك باند")?"unban":cmd))))return m.reply("ما عندكش سماح لاستخدام الأمر هذا.");
@@ -88,6 +126,16 @@ client.on("interactionCreate",async i=>{
  if(i.isChatInputCommand()){
   const name=i.commandName,admin=["ban","lock","unlock","clear","timeout","untimeout","unban","logs","shortcut_add","shortcut_remove","shortcut_list"];
   const actor=await i.guild.members.fetch(i.user.id).catch(()=>null);
+  if(name==="prison_settings"){
+   if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"إعدادات السجن للرتب العليا فقط.",ephemeral:true});
+   const menu=new ChannelSelectMenuBuilder().setCustomId("prison:channels:"+i.guild.id).setPlaceholder("اختار الرومات اللي يشوفها المسجون").setChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement,ChannelType.GuildVoice,ChannelType.GuildStageVoice,ChannelType.GuildForum).setMinValues(0).setMaxValues(25);
+   return i.reply({content:"**إعدادات السجن**\nاختار الرومات المسموح للمسجون يشوفها. الاختيار الجديد يطبق على حالات السجن القادمة.",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});
+  }
+  if(name==="auto_role_settings"){
+   if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"إعدادات الرتب التلقائية للرتب العليا فقط.",ephemeral:true});
+   const menu=new RoleSelectMenuBuilder().setCustomId("autoroles:roles:"+i.guild.id).setPlaceholder("اختار الرتب التلقائية").setMinValues(0).setMaxValues(25);
+   return i.reply({content:"**إعدادات الرتب التلقائية**\nاختار الرتب اللي ياخذها أي عضو جديد يدخل السيرفر.",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});
+  }
   if(name==="allow"){if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"أمر السماح للرتب العليا فقط.",ephemeral:true});const menu=new StringSelectMenuBuilder().setCustomId("allow:command:"+i.guild.id).setPlaceholder("اختار الأمر اللي تبي تمنح صلاحية استخدامه").addOptions(COMMAND_CHOICES.map(([value,label])=>({label,value})));return i.reply({content:"**لوحة السماح** — اختار الأمر، وبعدها حدد رتبة أو شخص.",components:[new ActionRowBuilder().addComponents(menu)],ephemeral:true});}
   if(admin.includes(name)&&!canCommand(actor,i.guild,name,actor?.permissions))return i.reply({content:"ما عندكش سماح لاستخدام الأمر هذا.",ephemeral:true});
   
@@ -107,6 +155,19 @@ client.on("interactionCreate",async i=>{
  }
  if(!i.isStringSelectMenu()&&!i.isChannelSelectMenu()&&!i.isRoleSelectMenu()&&!i.isUserSelectMenu())return;
  if(!high(i.member,i.guild,i.memberPermissions))return i.reply({content:"إعداد اللوقات للرتب العليا فقط.",ephemeral:true}).catch(()=>{});
+ if(i.customId.startsWith("prison:channels:")){
+  const guildId=i.customId.split(":")[2],guild=await client.guilds.fetch(guildId).catch(()=>null);
+  if(!guild||!high(i.member,guild,i.memberPermissions))return i.reply({content:"ما عندكش صلاحية إعداد السجن.",ephemeral:true});
+  settings.prisonAllowed ||= {};settings.prisonAllowed[guildId]=i.values;save();
+  return i.update({content:"تم حفظ الرومات المسموح للمسجون يشوفها: "+(i.values.length?i.values.map(id=>"<#"+id+">").join("، "):"ما فيش رومات محددة")+".",components:[]});
+ }
+ if(i.customId.startsWith("autoroles:roles:")){
+  const guildId=i.customId.split(":")[2],guild=await client.guilds.fetch(guildId).catch(()=>null);
+  if(!guild||!high(i.member,guild,i.memberPermissions))return i.reply({content:"ما عندكش صلاحية إعداد الرتب التلقائية.",ephemeral:true});
+  const valid=i.values.filter(id=>{const r=guild.roles.cache.get(id);return r&&!r.managed&&r.id!==guild.id;});
+  settings.autoRoles ||= {};settings.autoRoles[guildId]=valid;save();
+  return i.update({content:"تم حفظ الرتب التلقائية: "+(valid.length?valid.map(id=>"<@&"+id+">").join("، "):"تم إيقاف الرتب التلقائية")+".",components:[]});
+ }
  if(i.customId.startsWith("logs:type:")){
   const type=i.values[0],guildId=i.customId.split(":")[2],menu=new ChannelSelectMenuBuilder().setCustomId("logs:channel:"+guildId+":"+type).setPlaceholder("اختار روم اللوقات").setChannelTypes(ChannelType.GuildText).setMinValues(1).setMaxValues(1);
   return i.update({content:"اختار الروم اللي تبي تربط فيه "+(TYPES.find(x=>x[0]===type)?.[1]||type)+":",components:[new ActionRowBuilder().addComponents(menu)]});
@@ -140,7 +201,11 @@ client.on("interactionCreate",async i=>{
 });
 client.on("messageDelete",m=>{if(m.guild)log(m.guild,"messages","حذف رسالة","الكاتب: "+label(m.author)+"\nالروم: <#"+m.channelId+">\nالمحتوى: "+(m.content||"غير متوفر").slice(0,1500));});
 client.on("messageUpdate",(a,b)=>{if(b.guild&&a.content!==b.content)log(b.guild,"messages","تعديل رسالة","الكاتب: "+label(b.author)+"\nالروم: <#"+b.channelId+">\nقبل: "+(a.content||"غير متوفر").slice(0,700)+"\nبعد: "+(b.content||"غير متوفر").slice(0,700));});
-client.on("guildMemberAdd",m=>log(m.guild,"members","دخول عضو",label(m.user)+" دخل السيرفر."));
+client.on("guildMemberAdd",async m=>{
+ log(m.guild,"members","دخول عضو",label(m.user)+" دخل السيرفر.");
+ const ids=settings.autoRoles?.[m.guild.id]||[];
+ for(const id of ids){const role=m.guild.roles.cache.get(id);if(role&&!role.managed)await m.roles.add(role,"NEXO automatic roles").catch(e=>console.error("Auto role error:",e.message));}
+});
 client.on("guildMemberRemove",m=>log(m.guild,"members","خروج عضو",label(m.user)+" خرج من السيرفر."));
 client.on("voiceStateUpdate",(a,b)=>{if(a.channelId===b.channelId)return;const m=b.member||a.member,g=b.guild||a.guild,what=!a.channelId?"دخل":!b.channelId?"طلع من":"انتقل من",where=!a.channelId?"<#"+b.channelId+">":!b.channelId?"<#"+a.channelId+">":"<#"+a.channelId+"> إلى <#"+b.channelId+">";log(g,"voice","تغيير صوتي",label(m?.user)+" "+what+" "+where+".");});
 client.on("channelCreate",c=>{if(c.guild)log(c.guild,"channels","إنشاء روم",c.name+" ("+c.id+")");});

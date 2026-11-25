@@ -89,7 +89,7 @@ async function purgeMessages(channel,n,excludeId=null){
  return count?{deleted:count}:{deleted:0,reason:"تعذر حذف الرسائل. تأكد أن البوت عنده صلاحية Manage Messages."};
 }
 function duration(s){const m=/^(\d+)(s|m|h|d)$/i.exec(s||"");if(!m)return null;const n=+m[1];if(!n||n>40320)return null;return n*({s:1000,m:60000,h:3600000,d:86400000})[m[2].toLowerCase()];}
-client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
+client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
 client.on("messageCreate",async m=>{
  if(!m.guild||m.author.bot)return;
  if(!AUTHORIZED_USERS.includes(m.author.id))return;

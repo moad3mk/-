@@ -2,7 +2,7 @@ const {Client,GatewayIntentBits,Partials,ChannelType,EmbedBuilder,ActionRowBuild
 const {joinVoiceChannel,getVoiceConnection}=require("@discordjs/voice");
 const fs=require("fs"),path=require("path");
 const TOKEN=process.env.DISCORD_TOKEN;
-const ROLE_IDS=(process.env.ADMIN_ROLE_IDS||"").split(",").map(x=>x.trim()).filter(Boolean);
+const AUTHORIZED_USERS=["1572709970430918818","1574601663132729414"];
 if(!TOKEN){console.error("Missing DISCORD_TOKEN");process.exit(1);}
 const DATA=path.join(__dirname,"data"),FILE=path.join(DATA,"settings.json");
 fs.mkdirSync(DATA,{recursive:true});
@@ -38,8 +38,8 @@ async function releasePrison(guild,member){
  }
  delete settings.prisons[guild.id][member.id]; save(); return true;
 }
-function high(member,guild,permissions){return !!member&&(member.id===guild?.ownerId||!!permissions?.has?.("Administrator")||!!permissions?.has?.("ManageGuild")||!!member.permissions?.has?.("Administrator")||!!member.permissions?.has?.("ManageGuild")||!!member.roles?.cache?.some(r=>ROLE_IDS.includes(r.id)));}
-function canCommand(member,guild,command,permissions){if(high(member,guild,permissions))return true;const p=settings.permissions?.[guild.id]?.[command];if(!p)return false;if(p.users?.includes(member.id))return true;return !!member.roles?.cache?.some(r=>p.roles?.includes(r.id));}
+function high(member,guild,permissions){return !!member&&AUTHORIZED_USERS.includes(member.id);}
+function canCommand(member,guild,command,permissions){return high(member,guild,permissions);}
 const COMMAND_CHOICES=[["ban","حظر"],["lock","قفل"],["unlock","فتح"],["clear","مسح"],["timeout","إسكات"],["untimeout","فك الإسكات"],["unban","فك الحظر"],["logs","اللوقات"],["shortcut_add","إضافة اختصار"],["shortcut_remove","حذف اختصار"],["shortcut_list","قائمة الاختصارات"],["خط","خط"]];
 const client=new Client({intents:[GatewayIntentBits.Guilds,GatewayIntentBits.GuildMembers,GatewayIntentBits.GuildMessages,GatewayIntentBits.MessageContent,GatewayIntentBits.GuildVoiceStates,GatewayIntentBits.GuildModeration],partials:[Partials.Message,Partials.Channel,Partials.User,Partials.GuildMember]});
 const TYPES=[["ticket","لوق التكتات"],["messages","لوق الرسائل"],["members","لوق دخول وخروج"],["voice","لوق الصوتيات"],["actions","لوق الإجراءات"],["channels","لوق الرومات"],["roles","لوق الرتب"]];
@@ -92,6 +92,7 @@ function duration(s){const m=/^(\d+)(s|m|h|d)$/i.exec(s||"");if(!m)return null;c
 client.once("ready",async()=>{console.log("NEXO bot online as "+client.user.tag);if(!ROLE_IDS.length)console.warn("Set ADMIN_ROLE_IDS with high-rank role IDs.");try{const rest=new REST({version:"10"}).setToken(TOKEN);await rest.put(Routes.applicationCommands(client.user.id),{body:commands});console.log("NEXO slash commands registered.");}catch(e){console.error("Slash command registration failed:",e.message);}});
 client.on("messageCreate",async m=>{
  if(!m.guild||m.author.bot)return;
+ if(!AUTHORIZED_USERS.includes(m.author.id))return;
  const c=m.content.trim(),p=c.split(/\s+/),cmd=p[0];
  const shortcuts=settings.shortcuts[m.guild.id]||{};
  if(shortcuts[c])return m.reply(shortcuts[c]).catch(()=>{});
@@ -126,6 +127,7 @@ client.on("interactionCreate",async i=>{
  if(i.isChatInputCommand()){
   const name=i.commandName,admin=["ban","lock","unlock","clear","timeout","untimeout","unban","logs","shortcut_add","shortcut_remove","shortcut_list"];
   const actor=await i.guild.members.fetch(i.user.id).catch(()=>null);
+  if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"هذا البوت مخصص استخدامه للحسابين المصرح لهم فقط.",ephemeral:true});
   if(name==="prison_settings"){
    if(!high(actor,i.guild,actor?.permissions))return i.reply({content:"إعدادات السجن للرتب العليا فقط.",ephemeral:true});
    const menu=new ChannelSelectMenuBuilder().setCustomId("prison:channels:"+i.guild.id).setPlaceholder("اختار الرومات اللي يشوفها المسجون").setChannelTypes(ChannelType.GuildText,ChannelType.GuildAnnouncement,ChannelType.GuildVoice,ChannelType.GuildStageVoice,ChannelType.GuildForum).setMinValues(0).setMaxValues(25);

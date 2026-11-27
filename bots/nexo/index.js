@@ -96,6 +96,32 @@ client.on("messageCreate",async m=>{
  const c=m.content.trim(),p=c.split(/\s+/),cmd=p[0];
  const shortcuts=settings.shortcuts[m.guild.id]||{};
  if(shortcuts[c])return m.reply(shortcuts[c]).catch(()=>{});
+ if(cmd.toLowerCase()==="say"){
+  const text=c.slice(p[0].length).trim();
+  if(!text)return m.reply("استعمال الأمر: say النص اللي تبي البوت يقوله.");
+  try{
+   await m.channel.send({content:text,allowedMentions:{parse:[]}});
+   await m.delete().catch(()=>{});
+  }catch(e){console.error("Say command error:",e.message);return m.reply("ما قدرتش نرسل الرسالة.");}
+  return;
+ }
+ if(cmd==="&تفعيل"){
+  const target=m.mentions.members.first();
+  if(!target)return m.reply("استعمال الأمر: &تفعيل @العضو");
+  if(target.id===m.client.user.id)return m.reply("ما نقدرش نفعّل البوت نفسه.");
+  const removeRole=await m.guild.roles.fetch("1574116548426338396").catch(()=>null);
+  const addRole=await m.guild.roles.fetch("1574116535226867742").catch(()=>null);
+  const botMember=m.guild.members.me||await m.guild.members.fetchMe().catch(()=>null);
+  if(!removeRole||!addRole)return m.reply("ما لقيتش إحدى الرتبتين المحددتين في السيرفر.");
+  if(!botMember?.permissions.has("ManageRoles")||!removeRole.editable||!addRole.editable)return m.reply("البوت يحتاج صلاحية Manage Roles، ولازم رتبته تكون أعلى من الرتبتين.");
+  if(!target.manageable)return m.reply("ما نقدرش نعدل رتب هذا العضو بسبب ترتيب الرتب.");
+  try{
+   if(!target.roles.cache.has(addRole.id))await target.roles.add(addRole,"تفعيل العضو بواسطة "+m.author.tag);
+   if(target.roles.cache.has(removeRole.id))await target.roles.remove(removeRole,"إزالة رتبة ما قبل التفعيل بواسطة "+m.author.tag);
+   return m.reply("تم تفعيل "+target.user.tag+" بنجاح.");
+  }catch(e){console.error("Activation role error:",e.message);return m.reply("فشل التفعيل. تأكد من صلاحيات البوت وترتيب الرتب.");
+  }
+ }
  if(cmd==="دخول"){const v=m.member.voice.channel;if(!v)return m.reply("خش للروم الصوتي الأول.");try{joinVoiceChannel({channelId:v.id,guildId:m.guild.id,adapterCreator:m.guild.voiceAdapterCreator,selfDeaf:true});return m.reply("دخلت معاك للروم: "+v.name);}catch{return m.reply("ما قدرتش ندخل للروم الصوتي.");}}
  if(cmd==="خروج"){const v=getVoiceConnection(m.guild.id);if(!v)return m.reply("مش داخل في روم صوتي.");v.destroy();return m.reply("طلعت من الروم الصوتي.");}
  const admin=["تف","ق","ف","م","اسكت","لوقات","اختصار"];
